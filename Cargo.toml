@@ -1,0 +1,8 @@
+[package]
+name = "rustv64i"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aligned-vec = "0.6.2"
+eyre = "0.6.12"
