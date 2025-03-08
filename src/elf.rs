@@ -4,6 +4,7 @@ pub struct Elf {
     pub content: Vec<u8>,
 }
 
+#[expect(dead_code)]
 #[derive(Debug)]
 pub struct Header {
     pub e_entry: u32,
@@ -18,6 +19,7 @@ pub struct Header {
     pub e_shstrndx: u16,
 }
 
+#[expect(dead_code)]
 #[derive(Debug)]
 pub struct Phdr {
     pub p_type: u32,
@@ -42,9 +44,9 @@ impl Elf {
         }
 
         let (e_type, rest) = rest.split_u16()?;
-        // ET_EXEC
-        if e_type != 2 {
-            bail!("not a static executable: {e_type}");
+        // ET_EXEC|ET_DYN
+        if e_type != 2 && e_type != 3 {
+            bail!("not an executable: {e_type}");
         }
 
         let (e_machine, rest) = rest.split_u16()?;
@@ -121,7 +123,6 @@ pub trait SplitAtCheckedErr {
     fn split_bytes(&self, split: usize) -> Result<(&[u8], &[u8])>;
     fn split_u16(&self) -> Result<(u16, &[u8])>;
     fn split_u32(&self) -> Result<(u32, &[u8])>;
-    fn split_u64(&self) -> Result<(u64, &[u8])>;
 }
 impl SplitAtCheckedErr for [u8] {
     fn split_bytes(&self, mid: usize) -> Result<(&[u8], &[u8])> {
@@ -137,9 +138,5 @@ impl SplitAtCheckedErr for [u8] {
     fn split_u32(&self) -> Result<(u32, &[u8])> {
         let (bytes, rest) = self.split_bytes(4)?;
         Ok((u32::from_le_bytes(bytes.try_into().unwrap()), rest))
-    }
-    fn split_u64(&self) -> Result<(u64, &[u8])> {
-        let (bytes, rest) = self.split_bytes(8)?;
-        Ok((u64::from_le_bytes(bytes.try_into().unwrap()), rest))
     }
 }

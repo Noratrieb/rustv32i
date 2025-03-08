@@ -1,10 +1,8 @@
-use aligned_vec::avec;
+use emu::{Memory, Reg};
 use eyre::{OptionExt, bail};
 
 mod elf;
 mod emu;
-
-const PAGE_SIZE: usize = 4096;
 
 // 2 MiB
 const MEMORY_SIZE: usize = 2 << 21;
@@ -15,16 +13,13 @@ fn main() -> eyre::Result<()> {
     let elf = elf::Elf { content };
     let header = elf.header()?;
 
-    dbg!(&header);
-
     let segments = elf.segments()?;
 
     let mut mem = emu::Memory {
-        mem: avec![[PAGE_SIZE]| 0; MEMORY_SIZE],
+        mem: vec![0; MEMORY_SIZE],
     };
 
     for phdr in segments {
-        dbg!(&phdr);
         match phdr.p_type {
             // PT_NULL
             0 => {}
@@ -46,12 +41,16 @@ fn main() -> eyre::Result<()> {
                         .copy_from_slice(contents);
                 }
             }
+            // PT_DYNAMIC
+            2 => {}
             // PT_PHDR
             6 => {}
             // PT_GNU_EH_FRAME
             1685382480 => {}
             // PT_GNU_STACK
             1685382481 => {}
+            // PT_GNU_RELRO
+            1685382482 => {}
             // PT_RISCV_ATTRIBUTES
             0x70000003 => {}
             _ => bail!("unknown program header type: {}", phdr.p_type),
@@ -65,8 +64,64 @@ fn main() -> eyre::Result<()> {
         xreg: [0; 32],
         xreg0_value: 0,
         pc: start,
+
+        debug: std::env::args().any(|arg| arg == "--debug"),
+
+        ecall_handler: Box::new(ecall_handler),
     };
     emu.start_linux().unwrap();
+
+    Ok(())
+}
+
+fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Error> {
+    let nr = xreg[Reg::A7.0 as usize];
+
+    match nr {
+        // read
+        63 => {
+            let fd = xreg[Reg::A0.0 as usize];
+            let ptr = xreg[Reg::A1.0 as usize];
+            let len = xreg[Reg::A2.0 as usize];
+
+            let buf = mem.slice_mut(ptr, len)?;
+
+            let len = unsafe { libc::read(fd as i32, buf.as_mut_ptr().cast(), buf.len()) };
+            let ret = if len < 0 {
+                (-std::io::Error::last_os_error().raw_os_error().unwrap_or(1)) as u32
+            } else {
+                len as u32
+            };
+
+            xreg[Reg::A0.0 as usize] = ret;
+        }
+        // write
+        64 => {
+            let fd = xreg[Reg::A0.0 as usize];
+            let ptr = xreg[Reg::A1.0 as usize];
+            let len = xreg[Reg::A2.0 as usize];
+
+            let data = mem.slice(ptr, len)?;
+
+            let len = unsafe { libc::write(fd as i32, data.as_ptr().cast(), data.len()) };
+            let ret = if len < 0 {
+                (-std::io::Error::last_os_error().raw_os_error().unwrap_or(1)) as u32
+            } else {
+                len as u32
+            };
+
+            xreg[Reg::A0.0 as usize] = ret;
+        }
+        // exit
+        93 => {
+            return Err(emu::Error::Exit {
+                code: xreg[Reg::A0.0 as usize] as i32,
+            });
+        }
+        _ => {
+            todo!("unkonwn syscall: {nr}");
+        }
+    }
 
     Ok(())
 }
