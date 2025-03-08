@@ -63,9 +63,10 @@ fn main() -> eyre::Result<()> {
     let mut emu = emu::Emulator {
         mem,
         xreg: [0; 32],
+        xreg0_value: 0,
         pc: start,
     };
-    emu.execute().unwrap();
+    emu.start_linux().unwrap();
 
     Ok(())
 }

@@ -72,7 +72,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustv64i"
+name = "rustv32i"
 version = "0.1.0"
 dependencies = [
  "aligned-vec",
