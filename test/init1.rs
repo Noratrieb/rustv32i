@@ -93,9 +93,14 @@ fn input() -> u64 {
     }
 }
 
+fn x(a: i32) {}
+
 
 #[no_mangle]
 fn _start() -> ! {
+    x(0);
+    x(0);
+    exit(0);
     let random_number = 45;
 
     let num = core::sync::atomic::AtomicI32::new(0);

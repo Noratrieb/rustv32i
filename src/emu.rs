@@ -156,9 +156,6 @@ impl Emulator {
     }
 
     fn set_pc(&mut self, pc: u32) -> Result<(), Status> {
-        if pc % 4 != 0 {
-            return Err(Status::UnalignedPc(pc));
-        }
         self.pc = pc;
         Ok(())
     }

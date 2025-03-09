@@ -1,4 +1,4 @@
-use crate::emu::{Status, Reg};
+use crate::emu::{Reg, Status};
 use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 
@@ -337,11 +337,21 @@ impl Display for AmoOp {
     }
 }
 
-fn sign_extend(value: u32, size: u32) -> u32 {
+fn sign_extend32(value: u32, size: u32) -> u32 {
     assert!(size <= u32::BITS);
     let sign = value >> (size - 1);
     let imm = if sign == 1 {
         (u32::MAX << size) | value
+    } else {
+        value
+    };
+    imm
+}
+fn sign_extend16(value: u16, size: u16) -> u16 {
+    assert!(size <= u16::BITS as u16);
+    let sign = value >> (size - 1);
+    let imm = if sign == 1 {
+        (u16::MAX << size) | value
     } else {
         value
     };
@@ -356,6 +366,26 @@ impl InstCode {
         let end_span = 32 - (range.end() + 1);
         (self.0 << (end_span)) >> (end_span + range.start())
     }
+    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
+        let mut imm = 0;
+        for (from, to) in mappings {
+            let value = self.extract(from.clone());
+            imm |= value << to;
+        }
+        imm
+    }
+    fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
+        let mut imm = 0;
+        let mut size = 0;
+        for (from, to) in mappings {
+            let value = self.extract(from.clone());
+            imm |= value << to;
+            let this_size = from.end() - from.start() + 1;
+            size = size.max(*to + this_size);
+        }
+        sign_extend32(imm, size)
+    }
+
     fn opcode(self) -> u32 {
         self.0 & 0b1111111
     }
@@ -375,34 +405,19 @@ impl InstCode {
         Reg(self.extract(7..=11))
     }
     fn imm_i(self) -> u32 {
-        let imm = self.extract(20..=31);
-        sign_extend(imm, 12)
+        self.immediate_s(&[(20..=31, 0)])
     }
     fn imm_s(self) -> u32 {
-        let imm_11_5 = self.extract(25..=31);
-        let imm_4_0 = self.extract(7..=11);
-        let imm = (imm_11_5 << 5) | imm_4_0;
-        sign_extend(imm, 12)
+        self.immediate_s(&[(25..=31, 5), (7..=11, 0)])
     }
     fn imm_b(self) -> u32 {
-        let imm_12 = self.extract(31..=31);
-        let imm_10_5 = self.extract(25..=30);
-        let imm_4_1 = self.extract(8..=11);
-        let imm_11 = self.extract(7..=7);
-        let imm = (imm_12 << 12) | (imm_11 << 11) | (imm_10_5 << 5) | (imm_4_1 << 1);
-        sign_extend(imm, 13) // 13 due to 2-byte immediate offset
+        self.immediate_s(&[(31..=31, 12), (7..=7, 11), (25..=30, 5), (8..=11, 1)])
     }
     fn imm_u(self) -> u32 {
-        let imm_12_31 = self.extract(12..=31);
-        imm_12_31 << 12
+        self.immediate_u(&[(12..=31, 12)])
     }
     fn imm_j(self) -> u32 {
-        let imm_20 = self.extract(31..=31);
-        let imm_10_1 = self.extract(21..=30);
-        let imm_11 = self.extract(20..=20);
-        let imm_19_12 = self.extract(12..=19);
-        let imm = (imm_20 << 19) | (imm_19_12 << 11) | (imm_11 << 10) | imm_10_1;
-        sign_extend(imm, 20) << 1
+        self.immediate_u(&[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)])
     }
 }
 
@@ -412,8 +427,95 @@ impl Debug for InstCode {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct InstCodeC(u16);
+
+impl InstCodeC {
+    fn extract(self, range: RangeInclusive<u16>) -> u16 {
+        let end_span = 32 - (range.end() + 1);
+        (self.0 << (end_span)) >> (end_span + range.start())
+    }
+    fn immediate_u(self, mappings: &[(RangeInclusive<u16>, u16)]) -> u16 {
+        let mut imm = 0;
+        for (from, to) in mappings {
+            let value = self.extract(from.clone());
+            imm |= value << to;
+        }
+        imm
+    }
+
+    fn immediate_s(self, mappings: &[(RangeInclusive<u16>, u16)]) -> u16 {
+        let mut imm = 0;
+        let mut size = 0;
+        for (from, to) in mappings {
+            let value = self.extract(from.clone());
+            imm |= value << to;
+            let this_size = from.end() - from.start() + 1;
+            size = size.max(*to + this_size);
+        }
+        sign_extend16(imm, size)
+    }
+    fn op(self) -> u16 {
+        self.0 & 0b11
+    }
+    fn funct3(self) -> u16 {
+        self.extract(13..=15)
+    }
+    fn rd(self) -> Reg {
+        Reg(self.extract(7..=11) as u32)
+    }
+}
+
+impl From<InstCodeC> for InstCode {
+    fn from(value: InstCodeC) -> Self {
+        Self(value.0 as u32)
+    }
+}
+
 impl Inst {
     pub fn decode(code: u32) -> Result<Inst, Status> {
+        let is_compressed = (code & 0b11) != 0b11;
+        if is_compressed {
+            Self::decode_compressed(code as u16)
+        } else {
+            Self::decode_normal(code)
+        }
+    }
+
+    fn decode_compressed(code: u16) -> Result<Inst, Status> {
+        let code = InstCodeC(code);
+
+        let inst = match code.op() {
+            // C0
+            0b00 => todo!(),
+            // C1
+            0b01 => todo!(),
+            // C2
+            0b10 => {
+                match code.funct3() {
+                    // C.LDSP
+                    010 => {
+                        let dest = code.rd();
+                        if dest.0 == 0 {
+                            return Err(Status::IllegalInstruction(code.into(), "rd"));
+                        }
+                        let imm = code.immediate_s(&[(12..=12, 5), (4..=6, 2), (2..=3, 6)]);
+
+                        Inst::Lw {
+                            offset: imm as u32,
+                            dest,
+                            base: Reg::SP,
+                        }
+                    }
+                    _ => return Err(Status::IllegalInstruction(code.into(), "funct3")),
+                }
+            }
+            _ => return Err(Status::IllegalInstruction(code.into(), "op")),
+        };
+        Ok(inst)
+    }
+
+    fn decode_normal(code: u32) -> Result<Inst, Status> {
         let code = InstCode(code);
         let inst = match code.opcode() {
             // LUI

@@ -17,7 +17,6 @@
 
 .macro CASE_BOTH inst insti a b expected
     CASER \inst, \a, \b, \expected
-
     CASE_IMM \insti, \a, \b, \expected
 .endm
 
