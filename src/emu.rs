@@ -183,6 +183,16 @@ enum Inst {
 
     Ecall,
     Ebreak,
+
+    // M
+    Mul { dest: Reg, src1: Reg, src2: Reg },
+    Mulh { dest: Reg, src1: Reg, src2: Reg },
+    Mulhsu { dest: Reg, src1: Reg, src2: Reg },
+    Mulhu { dest: Reg, src1: Reg, src2: Reg },
+    Div { dest: Reg, src1: Reg, src2: Reg },
+    Divu { dest: Reg, src1: Reg, src2: Reg },
+    Rem { dest: Reg, src1: Reg, src2: Reg },
+    Remu { dest: Reg, src1: Reg, src2: Reg },
 }
 
 impl Debug for Inst {
@@ -288,6 +298,14 @@ impl Display for Inst {
             Inst::And { dest, src1, src2 } => write!(f, "and {dest}, {src1}, {src2}"),
             Inst::Ecall => write!(f, "ecall"),
             Inst::Ebreak => write!(f, "ebreak"),
+            Inst::Mul { dest, src1, src2 } => write!(f, "mul {dest}, {src1}, {src2}"),
+            Inst::Mulh { dest, src1, src2 } => write!(f, "mulh {dest}, {src1}, {src2}"),
+            Inst::Mulhsu { dest, src1, src2 } => write!(f, "mulhsu {dest}, {src1}, {src2}"),
+            Inst::Mulhu { dest, src1, src2 } => write!(f, "mulhu {dest}, {src1}, {src2}"),
+            Inst::Div { dest, src1, src2 } => write!(f, "div {dest}, {src1}, {src2}"),
+            Inst::Divu { dest, src1, src2 } => write!(f, "divu {dest}, {src1}, {src2}"),
+            Inst::Rem { dest, src1, src2 } => write!(f, "rem {dest}, {src1}, {src2}"),
+            Inst::Remu { dest, src1, src2 } => write!(f, "remu {dest}, {src1}, {src2}"),
         }
     }
 }
@@ -542,6 +560,15 @@ impl Inst {
                     (0b101, 0b0100000) => Inst::Sra { dest, src1, src2 },
                     (0b110, 0b0000000) => Inst::Or { dest, src1, src2 },
                     (0b111, 0b0000000) => Inst::And { dest, src1, src2 },
+
+                    (0b000, 0b0000001) => Inst::Mul { dest, src1, src2 },
+                    (0b001, 0b0000001) => Inst::Mulh { dest, src1, src2 },
+                    (0b010, 0b0000001) => Inst::Mulhsu { dest, src1, src2 },
+                    (0b011, 0b0000001) => Inst::Mulhu { dest, src1, src2 },
+                    (0b100, 0b0000001) => Inst::Div { dest, src1, src2 },
+                    (0b101, 0b0000001) => Inst::Divu { dest, src1, src2 },
+                    (0b110, 0b0000001) => Inst::Rem { dest, src1, src2 },
+                    (0b111, 0b0000001) => Inst::Remu { dest, src1, src2 },
                     _ => return Err(Error::IllegalInstruction(code, "funct3/funct7")),
                 }
             }
@@ -751,6 +778,50 @@ impl Emulator {
                 (self.ecall_handler)(&mut self.mem, &mut self.xreg)?;
             }
             Inst::Ebreak => return Err(Error::Ebreak),
+            Inst::Mul { dest, src1, src2 } => {
+                self[dest] = ((self[src1] as i32).wrapping_mul(self[src2] as i32)) as u32;
+            }
+            Inst::Mulh { dest, src1, src2 } => {
+                let shifted = ((self[src1] as i64).wrapping_mul(self[src2] as i64) as i64) >> 32;
+                self[dest] = shifted as u32;
+            }
+            Inst::Mulhsu { .. } => todo!("mulhsu"),
+            Inst::Mulhu { dest, src1, src2 } => {
+                let shifted = ((self[src1] as u64).wrapping_mul(self[src2] as u64) as u64) >> 32;
+                self[dest] = shifted as u32;
+            }
+            Inst::Div { dest, src1, src2 } => {
+                if self[src2] == 0 {
+                    self[dest] = u32::MAX;
+                } else if self[src2] == u32::MAX {
+                    self[dest] = u32::MAX;
+                } else {
+                    self[dest] = ((self[src1] as i32) / (self[src2] as i32)) as u32;
+                }
+            }
+            Inst::Divu { dest, src1, src2 } => {
+                if self[src2] == 0 {
+                    self[dest] = 2_u32.pow(32) - 1;
+                } else {
+                    self[dest] = self[src1] / self[src2];
+                }
+            }
+            Inst::Rem { dest, src1, src2 } => {
+                if self[src2] == 0 {
+                    self[dest] = self[src1];
+                } else if self[src2] == u32::MAX {
+                    self[dest] = 0;
+                } else {
+                    self[dest] = ((self[src1] as i32) % (self[src2] as i32)) as u32;
+                }
+            }
+            Inst::Remu { dest, src1, src2 } => {
+                if self[src2] == 0 {
+                    self[dest] = 2_u32.pow(32) - 1;
+                } else {
+                    self[dest] = self[src1] % self[src2];
+                }
+            }
         }
 
         if !jumped {
