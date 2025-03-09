@@ -107,7 +107,7 @@ impl IndexMut<Reg> for Emulator {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reg(pub u32);
 
 impl Reg {
@@ -318,7 +318,8 @@ impl Emulator {
                 self[dest] = ((self[src1] as i32).wrapping_mul(self[src2] as i32)) as u32;
             }
             Inst::Mulh { dest, src1, src2 } => {
-                let shifted = ((self[src1] as i64).wrapping_mul(self[src2] as i64) as i64) >> 32;
+                let mul_result = (self[src1] as i32 as i64).wrapping_mul(self[src2] as i32 as i64);
+                let shifted = (mul_result as u64) >> 32;
                 self[dest] = shifted as u32;
             }
             Inst::Mulhsu { .. } => todo!("mulhsu"),
@@ -329,7 +330,7 @@ impl Emulator {
             Inst::Div { dest, src1, src2 } => {
                 if self[src2] == 0 {
                     self[dest] = u32::MAX;
-                } else if self[src2] == u32::MAX {
+                } else if self[src1] == i32::MIN as u32 && self[src2] == u32::MAX {
                     self[dest] = u32::MAX;
                 } else {
                     self[dest] = ((self[src1] as i32) / (self[src2] as i32)) as u32;
@@ -337,7 +338,7 @@ impl Emulator {
             }
             Inst::Divu { dest, src1, src2 } => {
                 if self[src2] == 0 {
-                    self[dest] = 2_u32.pow(32) - 1;
+                    self[dest] = u32::MAX;
                 } else {
                     self[dest] = self[src1] / self[src2];
                 }
@@ -345,7 +346,7 @@ impl Emulator {
             Inst::Rem { dest, src1, src2 } => {
                 if self[src2] == 0 {
                     self[dest] = self[src1];
-                } else if self[src2] == u32::MAX {
+                } else if self[src1] == i32::MIN as u32 && self[src2] == u32::MAX {
                     self[dest] = 0;
                 } else {
                     self[dest] = ((self[src1] as i32) % (self[src2] as i32)) as u32;
@@ -353,9 +354,10 @@ impl Emulator {
             }
             Inst::Remu { dest, src1, src2 } => {
                 if self[src2] == 0 {
-                    self[dest] = 2_u32.pow(32) - 1;
+                    self[dest] = self[src1];
                 } else {
-                    self[dest] = self[src1] % self[src2];
+                    dbg!(self[src1], self[src2]);
+                    self[dest] = dbg!(self[src1] % self[src2]);
                 }
             }
             Inst::AmoW {

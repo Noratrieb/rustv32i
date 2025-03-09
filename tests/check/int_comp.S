@@ -2,7 +2,7 @@
 
 #include "../helper.S"
 
-.macro CASE_REG inst a b expected
+.macro CASER inst a b expected
     li t0, \a
     li t1, \b
     \inst t2, t0, t1
@@ -16,7 +16,7 @@
 .endm
 
 .macro CASE_BOTH inst insti a b expected
-    CASE_REG \inst, \a, \b, \expected
+    CASER \inst, \a, \b, \expected
 
     CASE_IMM \insti, \a, \b, \expected
 .endm
@@ -27,6 +27,8 @@
 .endm
 
 START_TEST
+    # Base instructions
+
     CASE add 10, 20, 30
     CASE add 10, -2, 8
     CASE add 10, 0, 10
@@ -64,20 +66,20 @@ START_TEST
     CASE sll, 0, 10, 0
     CASE sll, 10, 0, 10
     CASE sll, -1, 31, -2147483648
-    CASE_REG sll, -1, 32, -1 # error for immediate
+    CASER sll, -1, 32, -1 # error for immediate
 
     CASE srl, 4, 1, 2
     CASE srl, 0, 10, 0
     CASE srl, 10, 0, 10
     CASE srl, -1, 1, 2147483647
     CASE srl, 0b111, 2, 0b001
-    CASE_REG srl, -1, 32, -1 # error for immediate
+    CASER srl, -1, 32, -1 # error for immediate
 
-    CASE_REG sub, 10, 5, 5
-    CASE_REG sub, -1, 1, -2
-    CASE_REG sub, 1, 2, -1
-    CASE_REG sub, -1, -2, 1
-    CASE_REG sub, 0, 4294967295, 1
+    CASER sub, 10, 5, 5
+    CASER sub, -1, 1, -2
+    CASER sub, 1, 2, -1
+    CASER sub, -1, -2, 1
+    CASER sub, 0, 4294967295, 1
 
     CASE sra, 4, 1, 2
     CASE sra, 0, 10, 0
@@ -85,6 +87,52 @@ START_TEST
     CASE sra, -1, 1, -1
     CASE sra, -1, 31, -1
     CASE sra, 0b111, 2, 0b001
-    CASE_REG sra, 10, 32, 10 # error for immediate
+    CASER sra, 10, 32, 10 # error for immediate
+
+    # M extension
+
+    CASER mul, 4, 4, 16
+    CASER mul, 10, 0, 0
+    CASER mul, 10, 1, 10
+    CASER mul, -1, -1, 1
+    CASER mul, 25252566, 5225225, 353909638
+
+    CASER mulh 4, 4, 0
+    CASER mulh, -1, -1, 0
+    CASER mulh, 25252566, 5225225, 30722
+
+    CASER mulhu 4, 4, 0
+    CASER mulhu, -1, -1, 4294967294
+    CASER mulhu, 25252566, 5225225, 30722
+
+    # mulhsu hasn't been implemented yet.
+
+    CASER div, 4, 2, 2
+    CASER div, -1, 1, -1
+    CASER div, 1, 1, 1
+    CASER div, 1, 0, -1
+    CASER div, -10, 2, -5
+    CASER div, 5, 2, 2
+    CASER div, 5, -1, -5
+    CASER div, -2147483648, -1, -1
+
+    CASER divu, 4, 2, 2
+    CASER divu, -1, 1, -1
+    CASER divu, 1, 1, 1
+    CASER divu, 1, 0, -1
+    CASER divu, -10, 2, 2147483643
+    CASER divu, 5, 2, 2
+
+    CASER rem, 4, 2, 0
+    CASER rem, 5, 2, 1
+    CASER rem, 5, 0, 5
+    CASER rem, -10, 3, -1
+    CASER rem, 5, -1, 0
+    CASER rem, -2147483648, -1, 0
+
+    CASER remu, 4, 2, 0
+    CASER remu, 5, 2, 1
+    CASER remu, 5, 0, 5
+    CASER remu, -10, 3, 0
 
     PASS
