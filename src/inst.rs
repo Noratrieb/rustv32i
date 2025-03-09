@@ -145,8 +145,8 @@ impl Fence {
 }
 
 impl AmoOrdering {
-    pub fn from_ac_rl(ac: bool, rl: bool) -> Self {
-        match (ac, rl) {
+    pub fn from_aq_rl(aq: bool, rl: bool) -> Self {
+        match (aq, rl) {
             (false, false) => Self::Relaxed,
             (true, false) => Self::Acquire,
             (false, true) => Self::Release,
@@ -314,9 +314,9 @@ impl Display for AmoOrdering {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AmoOrdering::Relaxed => write!(f, ""),
-            AmoOrdering::Acquire => write!(f, ".ac"),
+            AmoOrdering::Acquire => write!(f, ".aq"),
             AmoOrdering::Release => write!(f, ".rl"),
-            AmoOrdering::SeqCst => write!(f, ".acrl"),
+            AmoOrdering::SeqCst => write!(f, ".aqrl"),
         }
     }
 }
@@ -650,17 +650,17 @@ impl Inst {
                 }
             }
             // AMO
-            00101111 => {
+            0b00101111 => {
                 // width must be W
                 if code.funct3() != 0b010 {
                     return Err(Status::IllegalInstruction(code, "funct3"));
                 }
 
                 let kind = code.extract(27..=31);
-                let ac = code.extract(26..=26) == 1;
+                let aq = code.extract(26..=26) == 1;
                 let rl = code.extract(25..=25) == 1;
 
-                let order = AmoOrdering::from_ac_rl(ac, rl);
+                let order = AmoOrdering::from_aq_rl(aq, rl);
 
                 match kind {
                     // LR
