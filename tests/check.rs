@@ -21,7 +21,7 @@ fn check() -> eyre::Result<()> {
 
         let name = file.file_name();
         let name = name.to_str().unwrap();
-        if !name.ends_with(".s") {
+        if !name.ends_with(".S") {
             continue;
         }
 
@@ -34,7 +34,7 @@ fn check() -> eyre::Result<()> {
 
         let status = rustv32i::execute_linux_elf(
             &content,
-            matches!(std::env::var("EMULATOR_DEBUG").as_deref(), Ok(v) if v != "0"),
+            true,
             Box::new(|_, xreg| {
                 if xreg[Reg::A7.0 as usize] == u32::MAX {
                     if xreg[Reg::A0.0 as usize] == 1 {
