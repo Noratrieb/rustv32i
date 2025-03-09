@@ -250,7 +250,7 @@ impl Emulator {
             }
             Inst::Lhu { offset, dest, base } => {
                 let addr = self[base].wrapping_add(offset);
-                self[dest] = self.mem.load_u8(addr)? as u32;
+                self[dest] = self.mem.load_u16(addr)? as u32;
             }
             Inst::Lw { offset, dest, base } => {
                 let addr = self[base].wrapping_add(offset);
