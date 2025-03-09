@@ -15,6 +15,10 @@
     ecall
 .endm
 
+.macro FAIL
+    j fail
+.endm
+
 fail:
     li a7, -1
     li a0, 0
