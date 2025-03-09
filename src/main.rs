@@ -1,8 +1,9 @@
 use emu::{Memory, Reg};
-use eyre::{OptionExt, bail};
+use eyre::{OptionExt, bail, eyre};
 
 mod elf;
 mod emu;
+mod inst;
 
 // 2 MiB
 const MEMORY_SIZE: usize = 2 << 21;
@@ -69,7 +70,14 @@ fn main() -> eyre::Result<()> {
 
         ecall_handler: Box::new(ecall_handler),
     };
-    emu.start_linux().unwrap();
+
+    match emu.start_linux() {
+        emu::Error::Exit { code } => {
+            eprintln!("exited with code {code}");
+        }
+        emu::Error::Trap(cause) => eprintln!("program trapped: {cause}"),
+        e => return Err(eyre!("error: {e:?}")),
+    }
 
     Ok(())
 }
