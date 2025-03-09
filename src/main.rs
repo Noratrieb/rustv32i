@@ -1,9 +1,8 @@
-use emu::{Memory, Reg};
 use eyre::{OptionExt, bail, eyre};
-
-mod elf;
-mod emu;
-mod inst;
+use rustv32i::{
+    elf,
+    emu::{self, Memory, Reg},
+};
 
 // 2 MiB
 const MEMORY_SIZE: usize = 2 << 21;

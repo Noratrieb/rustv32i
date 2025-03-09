@@ -66,7 +66,6 @@ impl Memory {
 }
 
 #[derive(Debug)]
-#[expect(dead_code)]
 pub enum Error {
     Trap(&'static str),
     IllegalInstruction(InstCode, &'static str),
@@ -109,7 +108,6 @@ impl IndexMut<Reg> for Emulator {
 #[derive(Clone, Copy)]
 pub struct Reg(pub u32);
 
-#[expect(dead_code)]
 impl Reg {
     pub const RA: Reg = Reg(1);
     pub const SP: Reg = Reg(2);
@@ -307,6 +305,7 @@ impl Emulator {
             }
             Inst::Or { dest, src1, src2 } => self[dest] = self[src1] | self[src2],
             Inst::And { dest, src1, src2 } => self[dest] = self[src1] & self[src2],
+            Inst::Fence { fence: _ } => { /* dont care */ }
             Inst::Ecall => {
                 (self.ecall_handler)(&mut self.mem, &mut self.xreg)?;
             }

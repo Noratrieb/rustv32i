@@ -2,6 +2,7 @@ use crate::emu::{Error, Reg};
 use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 
+#[derive(Clone, Copy)]
 pub enum Inst {
     Lui { uimm: u32, dest: Reg },
     Auipc { uimm: u32, dest: Reg },
@@ -47,6 +48,8 @@ pub enum Inst {
     Or { dest: Reg, src1: Reg, src2: Reg },
     And { dest: Reg, src1: Reg, src2: Reg },
 
+    Fence { fence: Fence },
+
     Ecall,
     Ebreak,
 
@@ -59,6 +62,23 @@ pub enum Inst {
     Divu { dest: Reg, src1: Reg, src2: Reg },
     Rem { dest: Reg, src1: Reg, src2: Reg },
     Remu { dest: Reg, src1: Reg, src2: Reg },
+}
+
+#[derive(Clone, Copy)]
+pub struct Fence {
+    pub fm: u32,
+    pub pred: FenceSet,
+    pub succ: FenceSet,
+    pub dest: Reg,
+    pub src: Reg,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct FenceSet {
+    pub device_input: bool,
+    pub device_output: bool,
+    pub memory_read: bool,
+    pub memory_write: bool,
 }
 
 impl Debug for Inst {
@@ -162,6 +182,28 @@ impl Display for Inst {
             Inst::Sra { dest, src1, src2 } => write!(f, "sra {dest}, {src1}, {src2}"),
             Inst::Or { dest, src1, src2 } => write!(f, "or {dest}, {src1}, {src2}"),
             Inst::And { dest, src1, src2 } => write!(f, "and {dest}, {src1}, {src2}"),
+            Inst::Fence { fence } => match fence.fm {
+                0b1000 => write!(f, "fence.TSO"),
+                0b0000
+                    if fence.pred
+                        == FenceSet {
+                            device_input: false,
+                            device_output: false,
+                            memory_read: false,
+                            memory_write: true,
+                        }
+                        && fence.succ
+                            == FenceSet {
+                                device_input: false,
+                                device_output: false,
+                                memory_read: false,
+                                memory_write: false,
+                            } =>
+                {
+                    write!(f, "pause")
+                }
+                _ => write!(f, "fence {},{}", fence.pred, fence.succ),
+            },
             Inst::Ecall => write!(f, "ecall"),
             Inst::Ebreak => write!(f, "ebreak"),
             Inst::Mul { dest, src1, src2 } => write!(f, "mul {dest}, {src1}, {src2}"),
@@ -173,6 +215,24 @@ impl Display for Inst {
             Inst::Rem { dest, src1, src2 } => write!(f, "rem {dest}, {src1}, {src2}"),
             Inst::Remu { dest, src1, src2 } => write!(f, "remu {dest}, {src1}, {src2}"),
         }
+    }
+}
+
+impl Display for FenceSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.device_input {
+            write!(f, "i")?;
+        }
+        if self.device_output {
+            write!(f, "o")?;
+        }
+        if self.memory_read {
+            write!(f, "r")?;
+        }
+        if self.memory_write {
+            write!(f, "w")?;
+        }
+        Ok(())
     }
 }
 
@@ -437,6 +497,35 @@ impl Inst {
                     (0b110, 0b0000001) => Inst::Rem { dest, src1, src2 },
                     (0b111, 0b0000001) => Inst::Remu { dest, src1, src2 },
                     _ => return Err(Error::IllegalInstruction(code, "funct3/funct7")),
+                }
+            }
+            // MISC-MEM
+            0b0001111 => {
+                let fm = code.extract(28..=31);
+                let pred = FenceSet {
+                    device_input: code.extract(27..=27) == 1,
+                    device_output: code.extract(26..=26) == 1,
+                    memory_read: code.extract(25..=25) == 1,
+                    memory_write: code.extract(24..=24) == 1,
+                };
+                let succ = FenceSet {
+                    device_input: code.extract(23..=23) == 1,
+                    device_output: code.extract(22..=22) == 1,
+                    memory_read: code.extract(21..=21) == 1,
+                    memory_write: code.extract(20..=20) == 1,
+                };
+
+                match code.funct3() {
+                    0b000 => Inst::Fence {
+                        fence: Fence {
+                            fm,
+                            pred,
+                            succ,
+                            dest: code.rd(),
+                            src: code.rs1(),
+                        },
+                    },
+                    _ => return Err(Error::IllegalInstruction(code, "funct3")),
                 }
             }
             // SYSTEM

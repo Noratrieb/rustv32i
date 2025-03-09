@@ -4,7 +4,6 @@ pub struct Elf {
     pub content: Vec<u8>,
 }
 
-#[expect(dead_code)]
 #[derive(Debug)]
 pub struct Header {
     pub e_entry: u32,
@@ -19,7 +18,6 @@ pub struct Header {
     pub e_shstrndx: u16,
 }
 
-#[expect(dead_code)]
 #[derive(Debug)]
 pub struct Phdr {
     pub p_type: u32,

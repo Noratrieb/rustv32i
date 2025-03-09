@@ -4,8 +4,7 @@ A small RISC-V emulator written in Rust.
 
 ## Features
 
-- [ ] Base RV32I instruction set
-    - missing fence and pause
+- [x] Base RV32I instruction set
 - [x] M standard extension
 - [ ] A standard extension
 - [ ] F standard extension
