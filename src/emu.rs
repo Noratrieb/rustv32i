@@ -10,9 +10,9 @@ pub struct Memory {
 }
 
 impl Memory {
-    fn check_align(&self, addr: u32, align: u32) -> Result<(), Error> {
+    fn check_align(&self, addr: u32, align: u32) -> Result<(), Status> {
         if addr % 2 != 0 {
-            Err(Error::UnaligneMemoryAccess {
+            Err(Status::UnaligneMemoryAccess {
                 addr,
                 required_align: align,
             })
@@ -20,44 +20,44 @@ impl Memory {
             Ok(())
         }
     }
-    pub fn slice(&self, addr: u32, len: u32) -> Result<&[u8], Error> {
+    pub fn slice(&self, addr: u32, len: u32) -> Result<&[u8], Status> {
         Ok(self
             .mem
             .get((addr as usize)..)
-            .ok_or(Error::InvalidMemoryAccess(addr))?
+            .ok_or(Status::InvalidMemoryAccess(addr))?
             .get(..(len as usize))
-            .ok_or(Error::InvalidMemoryAccess(addr))?)
+            .ok_or(Status::InvalidMemoryAccess(addr))?)
     }
-    pub fn slice_mut(&mut self, addr: u32, len: u32) -> Result<&mut [u8], Error> {
+    pub fn slice_mut(&mut self, addr: u32, len: u32) -> Result<&mut [u8], Status> {
         Ok(self
             .mem
             .get_mut((addr as usize)..)
-            .ok_or(Error::InvalidMemoryAccess(addr))?
+            .ok_or(Status::InvalidMemoryAccess(addr))?
             .get_mut(..(len as usize))
-            .ok_or(Error::InvalidMemoryAccess(addr))?)
+            .ok_or(Status::InvalidMemoryAccess(addr))?)
     }
 
-    pub fn load_u8(&self, addr: u32) -> Result<u8, Error> {
+    pub fn load_u8(&self, addr: u32) -> Result<u8, Status> {
         Ok(u8::from_le_bytes(self.slice(addr, 1)?.try_into().unwrap()))
     }
-    pub fn load_u16(&self, addr: u32) -> Result<u16, Error> {
+    pub fn load_u16(&self, addr: u32) -> Result<u16, Status> {
         Ok(u16::from_le_bytes(self.slice(addr, 2)?.try_into().unwrap()))
     }
-    pub fn load_u32(&self, addr: u32) -> Result<u32, Error> {
+    pub fn load_u32(&self, addr: u32) -> Result<u32, Status> {
         Ok(u32::from_le_bytes(self.slice(addr, 4)?.try_into().unwrap()))
     }
-    pub fn store_u8(&mut self, addr: u32, value: u8) -> Result<(), Error> {
+    pub fn store_u8(&mut self, addr: u32, value: u8) -> Result<(), Status> {
         Ok(self
             .slice_mut(addr, 1)?
             .copy_from_slice(&value.to_le_bytes()))
     }
-    pub fn store_u16(&mut self, addr: u32, value: u16) -> Result<(), Error> {
+    pub fn store_u16(&mut self, addr: u32, value: u16) -> Result<(), Status> {
         self.check_align(addr, 2)?;
         Ok(self
             .slice_mut(addr, 2)?
             .copy_from_slice(&value.to_le_bytes()))
     }
-    pub fn store_u32(&mut self, addr: u32, value: u32) -> Result<(), Error> {
+    pub fn store_u32(&mut self, addr: u32, value: u32) -> Result<(), Status> {
         self.check_align(addr, 4)?;
         Ok(self
             .slice_mut(addr, 4)?
@@ -66,7 +66,7 @@ impl Memory {
 }
 
 #[derive(Debug)]
-pub enum Error {
+pub enum Status {
     Trap(&'static str),
     IllegalInstruction(InstCode, &'static str),
     InvalidMemoryAccess(u32),
@@ -87,8 +87,7 @@ pub struct Emulator {
     pub reservation_set: Option<u32>,
 
     pub debug: bool,
-
-    pub ecall_handler: Box<dyn FnMut(&mut Memory, &mut [u32; 32]) -> Result<(), Error>>,
+    pub ecall_handler: Box<dyn FnMut(&mut Memory, &mut [u32; 32]) -> Result<(), Status>>,
 }
 
 impl Index<Reg> for Emulator {
@@ -141,14 +140,14 @@ impl Display for Reg {
 }
 
 impl Emulator {
-    pub fn start_linux(&mut self) -> Error {
+    pub fn start_linux(&mut self) -> Status {
         // set top of stack. just some yolo address. with no values there. who needs abi?
         self[Reg::SP] = 4096;
 
         self.execute()
     }
 
-    fn execute(&mut self) -> Error {
+    fn execute(&mut self) -> Status {
         loop {
             if let Err(err) = self.step() {
                 return err;
@@ -156,15 +155,15 @@ impl Emulator {
         }
     }
 
-    fn set_pc(&mut self, pc: u32) -> Result<(), Error> {
+    fn set_pc(&mut self, pc: u32) -> Result<(), Status> {
         if pc % 4 != 0 {
-            return Err(Error::UnalignedPc(pc));
+            return Err(Status::UnalignedPc(pc));
         }
         self.pc = pc;
         Ok(())
     }
 
-    fn step(&mut self) -> Result<(), Error> {
+    fn step(&mut self) -> Result<(), Status> {
         let code = self.mem.load_u32(self.pc)?;
         let inst = Inst::decode(code)?;
 
@@ -314,7 +313,7 @@ impl Emulator {
             Inst::Ecall => {
                 (self.ecall_handler)(&mut self.mem, &mut self.xreg)?;
             }
-            Inst::Ebreak => return Err(Error::Ebreak),
+            Inst::Ebreak => return Err(Status::Ebreak),
             Inst::Mul { dest, src1, src2 } => {
                 self[dest] = ((self[src1] as i32).wrapping_mul(self[src2] as i32)) as u32;
             }

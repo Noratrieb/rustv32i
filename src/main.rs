@@ -1,88 +1,27 @@
-use eyre::{OptionExt, bail, eyre};
-use rustv32i::{
-    elf,
-    emu::{self, Memory, Reg},
-};
-
-// 2 MiB
-const MEMORY_SIZE: usize = 2 << 21;
+use eyre::eyre;
+use rustv32i::emu::{self, Memory, Reg};
 
 fn main() -> eyre::Result<()> {
     let content = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();
 
-    let elf = elf::Elf { content };
-    let header = elf.header()?;
+    let status = rustv32i::execute_linux_elf(
+        &content,
+        std::env::args().any(|arg| arg == "--debug"),
+        Box::new(ecall_handler),
+    )?;
 
-    let segments = elf.segments()?;
-
-    let mut mem = emu::Memory {
-        mem: vec![0; MEMORY_SIZE],
-    };
-
-    for phdr in segments {
-        match phdr.p_type {
-            // PT_NULL
-            0 => {}
-            // PT_LOAD
-            1 => {
-                if phdr.p_filesz > 0 {
-                    let contents = &elf
-                        .content
-                        .get((phdr.p_offset as usize)..)
-                        .ok_or_eyre("invalid offset")?
-                        .get(..(phdr.p_filesz as usize))
-                        .ok_or_eyre("invalid offset")?;
-
-                    mem.mem
-                        .get_mut((phdr.p_vaddr as usize)..)
-                        .ok_or_eyre("invalid offset")?
-                        .get_mut(..(phdr.p_filesz as usize))
-                        .ok_or_eyre("invalid offset")?
-                        .copy_from_slice(contents);
-                }
-            }
-            // PT_DYNAMIC
-            2 => {}
-            // PT_PHDR
-            6 => {}
-            // PT_GNU_EH_FRAME
-            1685382480 => {}
-            // PT_GNU_STACK
-            1685382481 => {}
-            // PT_GNU_RELRO
-            1685382482 => {}
-            // PT_RISCV_ATTRIBUTES
-            0x70000003 => {}
-            _ => bail!("unknown program header type: {}", phdr.p_type),
-        }
-    }
-
-    let start = header.e_entry;
-
-    let mut emu = emu::Emulator {
-        mem,
-        xreg: [0; 32],
-        xreg0_value: 0,
-        pc: start,
-        reservation_set: None,
-
-        debug: std::env::args().any(|arg| arg == "--debug"),
-
-        ecall_handler: Box::new(ecall_handler),
-    };
-
-    match emu.start_linux() {
-        emu::Error::Exit { code } => {
+    match status {
+        emu::Status::Exit { code } => {
             eprintln!("exited with code {code}");
         }
-        emu::Error::Trap(cause) => eprintln!("program trapped: {cause}"),
+        emu::Status::Trap(cause) => eprintln!("program trapped: {cause}"),
         e => return Err(eyre!("error: {e:?}")),
     }
 
     Ok(())
 }
 
-fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Error> {
+fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Status> {
     let nr = xreg[Reg::A7.0 as usize];
 
     match nr {
@@ -122,7 +61,7 @@ fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Erro
         }
         // exit
         93 => {
-            return Err(emu::Error::Exit {
+            return Err(emu::Status::Exit {
                 code: xreg[Reg::A0.0 as usize] as i32,
             });
         }

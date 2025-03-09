@@ -1,4 +1,4 @@
-use crate::emu::{Error, Reg};
+use crate::emu::{Status, Reg};
 use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 
@@ -413,7 +413,7 @@ impl Debug for InstCode {
 }
 
 impl Inst {
-    pub fn decode(code: u32) -> Result<Inst, Error> {
+    pub fn decode(code: u32) -> Result<Inst, Status> {
         let code = InstCode(code);
         let inst = match code.opcode() {
             // LUI
@@ -438,7 +438,7 @@ impl Inst {
                     base: code.rs1(),
                     dest: code.rd(),
                 },
-                _ => return Err(Error::IllegalInstruction(code, "funct3")),
+                _ => return Err(Status::IllegalInstruction(code, "funct3")),
             },
             // BRANCH
             0b1100011 => match code.funct3() {
@@ -472,7 +472,7 @@ impl Inst {
                     src1: code.rs1(),
                     src2: code.rs2(),
                 },
-                _ => return Err(Error::IllegalInstruction(code, "funct3")),
+                _ => return Err(Status::IllegalInstruction(code, "funct3")),
             },
             // LOAD
             0b0000011 => match code.funct3() {
@@ -501,7 +501,7 @@ impl Inst {
                     dest: code.rd(),
                     base: code.rs1(),
                 },
-                _ => return Err(Error::IllegalInstruction(code, "funct3")),
+                _ => return Err(Status::IllegalInstruction(code, "funct3")),
             },
             // STORE
             0b0100011 => match code.funct3() {
@@ -520,7 +520,7 @@ impl Inst {
                     src: code.rs2(),
                     base: code.rs1(),
                 },
-                _ => return Err(Error::IllegalInstruction(code, "funct3")),
+                _ => return Err(Status::IllegalInstruction(code, "funct3")),
             },
             // OP-IMM
             0b0010011 => match code.funct3() {
@@ -570,9 +570,9 @@ impl Inst {
                         dest: code.rd(),
                         src1: code.rs1(),
                     },
-                    _ => return Err(Error::IllegalInstruction(code, "funct7")),
+                    _ => return Err(Status::IllegalInstruction(code, "funct7")),
                 },
-                _ => return Err(Error::IllegalInstruction(code, "funct3")),
+                _ => return Err(Status::IllegalInstruction(code, "funct3")),
             },
             // OP
             0b0110011 => {
@@ -597,7 +597,7 @@ impl Inst {
                     (0b101, 0b0000001) => Inst::Divu { dest, src1, src2 },
                     (0b110, 0b0000001) => Inst::Rem { dest, src1, src2 },
                     (0b111, 0b0000001) => Inst::Remu { dest, src1, src2 },
-                    _ => return Err(Error::IllegalInstruction(code, "funct3/funct7")),
+                    _ => return Err(Status::IllegalInstruction(code, "funct3/funct7")),
                 }
             }
             // MISC-MEM
@@ -626,34 +626,34 @@ impl Inst {
                             src: code.rs1(),
                         },
                     },
-                    _ => return Err(Error::IllegalInstruction(code, "funct3")),
+                    _ => return Err(Status::IllegalInstruction(code, "funct3")),
                 }
             }
             // SYSTEM
             0b1110011 => {
                 if code.0 == 0b11000000000000000001000001110011 {
-                    return Err(Error::Trap("unimp instruction"));
+                    return Err(Status::Trap("unimp instruction"));
                 }
                 if code.rd().0 != 0 {
-                    return Err(Error::IllegalInstruction(code, "rd"));
+                    return Err(Status::IllegalInstruction(code, "rd"));
                 }
                 if code.funct3() != 0 {
-                    return Err(Error::IllegalInstruction(code, "funct3"));
+                    return Err(Status::IllegalInstruction(code, "funct3"));
                 }
                 if code.rs1().0 != 0 {
-                    return Err(Error::IllegalInstruction(code, "rs1"));
+                    return Err(Status::IllegalInstruction(code, "rs1"));
                 }
                 match code.imm_i() {
                     0b000000000000 => Inst::Ecall,
                     0b000000000001 => Inst::Ebreak,
-                    _ => return Err(Error::IllegalInstruction(code, "imm")),
+                    _ => return Err(Status::IllegalInstruction(code, "imm")),
                 }
             }
             // AMO
             00101111 => {
                 // width must be W
                 if code.funct3() != 0b010 {
-                    return Err(Error::IllegalInstruction(code, "funct3"));
+                    return Err(Status::IllegalInstruction(code, "funct3"));
                 }
 
                 let kind = code.extract(27..=31);
@@ -666,7 +666,7 @@ impl Inst {
                     // LR
                     0b00010 => {
                         if code.rs2().0 != 0 {
-                            return Err(Error::IllegalInstruction(code, "rs2"));
+                            return Err(Status::IllegalInstruction(code, "rs2"));
                         }
 
                         Inst::LrW {
@@ -693,7 +693,7 @@ impl Inst {
                             0b10100 => AmoOp::Max,
                             0b11000 => AmoOp::Minu,
                             0b11100 => AmoOp::Maxu,
-                            _ => return Err(Error::IllegalInstruction(code, "funct7")),
+                            _ => return Err(Status::IllegalInstruction(code, "funct7")),
                         };
                         Inst::AmoW {
                             order,
@@ -705,7 +705,7 @@ impl Inst {
                     }
                 }
             }
-            _ => return Err(Error::IllegalInstruction(code, "opcode")),
+            _ => return Err(Status::IllegalInstruction(code, "opcode")),
         };
         Ok(inst)
     }

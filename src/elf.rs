@@ -1,7 +1,7 @@
 use eyre::{Result, bail};
 
-pub struct Elf {
-    pub content: Vec<u8>,
+pub struct Elf<'a> {
+    pub content: &'a [u8],
 }
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub struct Phdr {
     pub p_align: u32,
 }
 
-impl Elf {
+impl<'a> Elf<'a> {
     pub fn header(&self) -> Result<Header> {
         let (ident, rest) = self.content.split_bytes(16)?;
         if ident[..4] != *b"\x7fELF" {
