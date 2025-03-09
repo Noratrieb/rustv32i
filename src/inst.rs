@@ -81,6 +81,27 @@ pub struct FenceSet {
     pub memory_write: bool,
 }
 
+impl Fence {
+    pub fn is_pause(&self) -> bool {
+        self.pred
+            == FenceSet {
+                device_input: false,
+                device_output: false,
+                memory_read: false,
+                memory_write: true,
+            }
+            && self.succ
+                == FenceSet {
+                    device_input: false,
+                    device_output: false,
+                    memory_read: false,
+                    memory_write: false,
+                }
+            && self.dest == Reg::ZERO
+            && self.src == Reg::ZERO
+    }
+}
+
 impl Debug for Inst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self, f)
@@ -184,22 +205,7 @@ impl Display for Inst {
             Inst::And { dest, src1, src2 } => write!(f, "and {dest}, {src1}, {src2}"),
             Inst::Fence { fence } => match fence.fm {
                 0b1000 => write!(f, "fence.TSO"),
-                0b0000
-                    if fence.pred
-                        == FenceSet {
-                            device_input: false,
-                            device_output: false,
-                            memory_read: false,
-                            memory_write: true,
-                        }
-                        && fence.succ
-                            == FenceSet {
-                                device_input: false,
-                                device_output: false,
-                                memory_read: false,
-                                memory_write: false,
-                            } =>
-                {
+                0b0000 if fence.is_pause() => {
                     write!(f, "pause")
                 }
                 _ => write!(f, "fence {},{}", fence.pred, fence.succ),

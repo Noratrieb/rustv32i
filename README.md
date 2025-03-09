@@ -7,6 +7,10 @@ A small RISC-V emulator written in Rust.
 - [x] Base RV32I instruction set
 - [x] M standard extension
 - [ ] A standard extension
+    - [ ] Zalrsc standard extension
+    - [ ] Zaamo standard extension
 - [ ] F standard extension
 - [ ] D standard extension
 - [ ] C standard extension
+
+- [x] Zihintpause standard extension

@@ -105,10 +105,12 @@ impl IndexMut<Reg> for Emulator {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Reg(pub u32);
 
 impl Reg {
+    pub const ZERO: Reg = Reg(0);
+
     pub const RA: Reg = Reg(1);
     pub const SP: Reg = Reg(2);
     // arguments, return values:
