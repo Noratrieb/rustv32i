@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 
 #[derive(Clone, Copy)]
+#[rustfmt::skip]
 pub enum Inst {
     Lui { uimm: u32, dest: Reg },
     Auipc { uimm: u32, dest: Reg },
@@ -62,6 +63,26 @@ pub enum Inst {
     Divu { dest: Reg, src1: Reg, src2: Reg },
     Rem { dest: Reg, src1: Reg, src2: Reg },
     Remu { dest: Reg, src1: Reg, src2: Reg },
+
+    // A
+    LrW {
+        order: AmoOrdering,
+        dest: Reg,
+        addr: Reg,  
+    },
+    ScW {
+        order: AmoOrdering,
+        dest: Reg,
+        addr: Reg,
+        src: Reg,
+    },
+    AmoW {
+        order: AmoOrdering,
+        op: AmoOp,
+        dest: Reg,
+        addr: Reg,
+        src: Reg,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -79,6 +100,27 @@ pub struct FenceSet {
     pub device_output: bool,
     pub memory_read: bool,
     pub memory_write: bool,
+}
+
+#[derive(Clone, Copy)]
+pub enum AmoOrdering {
+    Relaxed,
+    Acquire,
+    Release,
+    SeqCst,
+}
+
+#[derive(Clone, Copy)]
+pub enum AmoOp {
+    Swap,
+    Add,
+    Xor,
+    And,
+    Or,
+    Min,
+    Max,
+    Minu,
+    Maxu,
 }
 
 impl Fence {
@@ -102,11 +144,23 @@ impl Fence {
     }
 }
 
+impl AmoOrdering {
+    pub fn from_ac_rl(ac: bool, rl: bool) -> Self {
+        match (ac, rl) {
+            (false, false) => Self::Relaxed,
+            (true, false) => Self::Acquire,
+            (false, true) => Self::Release,
+            (true, true) => Self::SeqCst,
+        }
+    }
+}
+
 impl Debug for Inst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self, f)
     }
 }
+
 impl Display for Inst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
@@ -220,6 +274,20 @@ impl Display for Inst {
             Inst::Divu { dest, src1, src2 } => write!(f, "divu {dest}, {src1}, {src2}"),
             Inst::Rem { dest, src1, src2 } => write!(f, "rem {dest}, {src1}, {src2}"),
             Inst::Remu { dest, src1, src2 } => write!(f, "remu {dest}, {src1}, {src2}"),
+            Inst::LrW { order, dest, addr } => write!(f, "lr.w{order} {dest}, ({addr})",),
+            Inst::ScW {
+                order,
+                dest,
+                addr,
+                src,
+            } => write!(f, "sc.w{order} {dest}, {src}, ({addr})"),
+            Inst::AmoW {
+                order,
+                op,
+                dest,
+                addr,
+                src,
+            } => write!(f, "am{op}.w{order} {dest}, {src}, ({addr})",),
         }
     }
 }
@@ -239,6 +307,33 @@ impl Display for FenceSet {
             write!(f, "w")?;
         }
         Ok(())
+    }
+}
+
+impl Display for AmoOrdering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AmoOrdering::Relaxed => write!(f, ""),
+            AmoOrdering::Acquire => write!(f, ".ac"),
+            AmoOrdering::Release => write!(f, ".rl"),
+            AmoOrdering::SeqCst => write!(f, ".acrl"),
+        }
+    }
+}
+
+impl Display for AmoOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AmoOp::Swap => write!(f, "swap"),
+            AmoOp::Add => write!(f, "add"),
+            AmoOp::Xor => write!(f, "xor"),
+            AmoOp::And => write!(f, "and"),
+            AmoOp::Or => write!(f, "or"),
+            AmoOp::Min => write!(f, "min"),
+            AmoOp::Max => write!(f, "max"),
+            AmoOp::Minu => write!(f, "minu"),
+            AmoOp::Maxu => write!(f, "maxu"),
+        }
     }
 }
 
@@ -552,6 +647,62 @@ impl Inst {
                     0b000000000000 => Inst::Ecall,
                     0b000000000001 => Inst::Ebreak,
                     _ => return Err(Error::IllegalInstruction(code, "imm")),
+                }
+            }
+            // AMO
+            00101111 => {
+                // width must be W
+                if code.funct3() != 0b010 {
+                    return Err(Error::IllegalInstruction(code, "funct3"));
+                }
+
+                let kind = code.extract(27..=31);
+                let ac = code.extract(26..=26) == 1;
+                let rl = code.extract(25..=25) == 1;
+
+                let order = AmoOrdering::from_ac_rl(ac, rl);
+
+                match kind {
+                    // LR
+                    0b00010 => {
+                        if code.rs2().0 != 0 {
+                            return Err(Error::IllegalInstruction(code, "rs2"));
+                        }
+
+                        Inst::LrW {
+                            order,
+                            dest: code.rd(),
+                            addr: code.rs1(),
+                        }
+                    }
+                    // SC
+                    0b00011 => Inst::ScW {
+                        order,
+                        dest: code.rd(),
+                        addr: code.rs1(),
+                        src: code.rs2(),
+                    },
+                    _ => {
+                        let op = match kind {
+                            0b00001 => AmoOp::Swap,
+                            0b00000 => AmoOp::Add,
+                            0b00100 => AmoOp::Xor,
+                            0b01100 => AmoOp::And,
+                            0b01000 => AmoOp::Or,
+                            0b10000 => AmoOp::Min,
+                            0b10100 => AmoOp::Max,
+                            0b11000 => AmoOp::Minu,
+                            0b11100 => AmoOp::Maxu,
+                            _ => return Err(Error::IllegalInstruction(code, "funct7")),
+                        };
+                        Inst::AmoW {
+                            order,
+                            op,
+                            dest: code.rd(),
+                            addr: code.rs1(),
+                            src: code.rs2(),
+                        }
+                    }
                 }
             }
             _ => return Err(Error::IllegalInstruction(code, "opcode")),

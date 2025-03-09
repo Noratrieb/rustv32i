@@ -98,6 +98,9 @@ fn input() -> u64 {
 fn _start() -> ! {
     let random_number = 45;
 
+    let num = core::sync::atomic::AtomicI32::new(0);
+    num.swap(10, core::sync::atomic::Ordering::SeqCst);
+
     loop {
         let n = input();
         if n == random_number {

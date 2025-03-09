@@ -64,6 +64,7 @@ fn main() -> eyre::Result<()> {
         xreg: [0; 32],
         xreg0_value: 0,
         pc: start,
+        reservation_set: None,
 
         debug: std::env::args().any(|arg| arg == "--debug"),
 

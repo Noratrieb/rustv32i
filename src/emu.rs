@@ -1,4 +1,4 @@
-use crate::inst::{Inst, InstCode};
+use crate::inst::{AmoOp, Inst, InstCode};
 use std::{
     fmt::{Debug, Display},
     ops::{Index, IndexMut},
@@ -82,6 +82,9 @@ pub struct Emulator {
     /// Written to insterad of xreg[0].
     pub xreg0_value: u32,
     pub pc: u32,
+    /// We need to store the most recent reservation set for LR/SC
+    /// to make SC fail if it's not to this address.
+    pub reservation_set: Option<u32>,
 
     pub debug: bool,
 
@@ -355,6 +358,52 @@ impl Emulator {
                 } else {
                     self[dest] = self[src1] % self[src2];
                 }
+            }
+            Inst::AmoW {
+                order: _,
+                op,
+                dest,
+                addr,
+                src,
+            } => {
+                let addr = self[addr];
+                self[dest] = self.mem.load_u32(addr)?;
+                let result = match op {
+                    AmoOp::Swap => self[src],
+                    AmoOp::Add => self[dest].wrapping_add(self[src]),
+                    AmoOp::Xor => self[dest] ^ self[src],
+                    AmoOp::And => self[dest] & self[src],
+                    AmoOp::Or => self[dest] | self[src],
+                    AmoOp::Min => (self[dest] as i32).min(self[src] as i32) as u32,
+                    AmoOp::Max => (self[dest] as i32).max(self[src] as i32) as u32,
+                    AmoOp::Minu => self[dest].min(self[src]),
+                    AmoOp::Maxu => self[dest].max(self[src]),
+                };
+                self.mem.store_u32(addr, result)?;
+            }
+            Inst::LrW {
+                order: _,
+                dest,
+                addr,
+            } => {
+                let addr = self[addr];
+                self[dest] = self.mem.load_u32(addr)?;
+                self.reservation_set = Some(addr);
+            }
+            Inst::ScW {
+                order: _,
+                dest,
+                addr,
+                src,
+            } => {
+                let addr = self[addr];
+                self.mem.store_u32(addr, self[src])?;
+                if self.reservation_set != Some(addr) {
+                    self[dest] = 1; // error
+                } else {
+                    self[dest] = 0; // success
+                }
+                self.reservation_set = None;
             }
         }
 
