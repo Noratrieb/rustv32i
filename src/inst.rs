@@ -224,7 +224,11 @@ impl Display for Inst {
                 }
             }
             Inst::Jalr { offset, base, dest } => {
-                write!(f, "jalr {dest}, {}({base})", offset as i32)
+                if dest == Reg::ZERO && offset == 0 && base == Reg::RA {
+                    write!(f, "ret")
+                } else {
+                    write!(f, "jalr {dest}, {}({base})", offset as i32)
+                }
             }
             Inst::Beq { offset, src1, src2 } => write!(f, "beq {src1}, {src2}, {}", offset as i32),
             Inst::Bne { offset, src1, src2 } => write!(f, "bne {src1}, {src2}, {}", offset as i32),
@@ -554,7 +558,6 @@ impl Inst {
         if code.0 == 0 {
             return Err(Status::IllegalInstruction(code.into(), "null instruction"));
         }
-
         let inst = match code.quadrant() {
             // C0
             0b00 => match code.funct3() {
@@ -695,7 +698,7 @@ impl Inst {
                         // C.ADDI16SP -> addi sp, sp, \imm
                         2 => Inst::Addi {
                             imm: code.immediate_s(&[
-                                (2..=2, 2),
+                                (2..=2, 5),
                                 (3..=4, 7),
                                 (5..=5, 6),
                                 (6..=6, 4),

@@ -150,10 +150,33 @@ impl Display for Reg {
     }
 }
 
+fn hash_color(value: u32) -> impl Display {
+    use owo_colors::*;
+    use std::hash::{Hash, Hasher};
+    let mut w = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut w);
+    let hash = w.finish();
+    let arr = [
+        AnsiColors::Black,
+        AnsiColors::Red,
+        AnsiColors::Green,
+        AnsiColors::Yellow,
+        AnsiColors::Blue,
+        AnsiColors::Magenta,
+        AnsiColors::Cyan,
+        AnsiColors::White,
+        AnsiColors::Default,
+    ];
+    format!(
+        "{}",
+        format!("{value:x}").color(arr[(hash % arr.len() as u64) as usize])
+    )
+}
+
 impl Emulator {
     pub fn start_linux(&mut self) -> Status {
         // set top of stack. just some yolo address. with no values there. who needs abi?
-        self[Reg::SP] = 4096;
+        self[Reg::SP] = 4096 * 8;
 
         self.execute()
     }
@@ -180,7 +203,15 @@ impl Emulator {
         }
 
         if self.debug {
-            println!("executing 0x{:x} {inst:?}", self.pc);
+            println!(
+                "0x{:x} {} (sp: {}) {inst:?}",
+                self.pc,
+                match was_compressed {
+                    IsCompressed::Yes => "C",
+                    IsCompressed::No => " ",
+                },
+                hash_color(self.xreg[Reg::SP.0 as usize])
+            );
         }
 
         let next_pc = self.pc.wrapping_add(match was_compressed {
@@ -435,7 +466,7 @@ impl Emulator {
         Ok(())
     }
 
-    fn debug_interactive(&mut self) {
+    pub fn debug_interactive(&mut self) {
         use owo_colors::OwoColorize;
         loop {
             print!("> ");
@@ -451,6 +482,7 @@ impl Emulator {
                 "s" => {
                     return;
                 }
+                "q" => std::process::exit(0),
                 "p" => {
                     let format_value = |v: u32| {
                         if v == 0 {
@@ -554,7 +586,8 @@ impl Emulator {
 - ?: help
 - p: print registers
 - c: continue until next breakpoint
-- s: step one instruction"
+- s: step one instruction
+- q: quit"
                 ),
             }
         }
