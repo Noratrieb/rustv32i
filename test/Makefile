@@ -10,6 +10,3 @@ init: init.c
 
 init1: init1.rs
 	$(RUSTC) init1.rs
-
-x: x.S
-	$(CC_STATIC) x.S -o x
