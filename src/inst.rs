@@ -1120,3 +1120,26 @@ impl Inst {
         Ok(inst)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    #[test]
+    fn exhaustive_decode_no_panic() {
+        if std::env::var("SLOW_TESTS").is_err() {
+            return;
+        }
+
+        for i in 0..u32::MAX {
+            if (i % (2 << 25)) == 0 {
+                let percent = i as f32 / (u32::MAX as f32);
+                let done = (100.0 * percent) as usize;
+                print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
+                std::io::stdout().flush().unwrap();
+            }
+            let _ = super::Inst::decode(i);
+        }
+        let _ = super::Inst::decode(u32::MAX);
+    }
+}
