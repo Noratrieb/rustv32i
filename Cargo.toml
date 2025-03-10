@@ -16,3 +16,7 @@ tempfile = "3.18.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(slow_tests)'] }
+
+[lints.clippy]
+type_complexity = "allow"
+if_same_then_else = "allow"

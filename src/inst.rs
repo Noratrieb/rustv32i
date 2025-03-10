@@ -396,12 +396,11 @@ impl Display for AmoOp {
 fn sign_extend(value: u32, size: u32) -> u32 {
     assert!(size <= u32::BITS);
     let sign = value >> (size - 1);
-    let imm = if sign == 1 {
+    if sign == 1 {
         (u32::MAX << size) | value
     } else {
         value
-    };
-    imm
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -487,7 +486,7 @@ impl InstCodeC {
             let value = self.extract(from.clone());
             imm |= value << to;
         }
-        imm as u32
+        imm
     }
     fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
         let mut imm = 0;
@@ -512,23 +511,23 @@ impl InstCodeC {
     }
     /// rd/rs1 (7..=11)
     fn rd(self) -> Reg {
-        Reg(self.extract(7..=11) as u32)
+        Reg(self.extract(7..=11))
     }
     /// rs2 (2..=6)
     fn rs2(self) -> Reg {
-        Reg(self.extract(2..=6) as u32)
+        Reg(self.extract(2..=6))
     }
     /// rs1' (7..=9)
     fn rs1_short(self) -> Reg {
         let smol_reg = self.extract(7..=9);
         // map to x8..=x15
-        Reg(smol_reg as u32 + 8)
+        Reg(smol_reg + 8)
     }
     /// rs2' (2..=4)
     fn rs2_short(self) -> Reg {
         let smol_reg = self.extract(2..=4);
         // map to x8..=x15
-        Reg(smol_reg as u32 + 8)
+        Reg(smol_reg + 8)
     }
 }
 

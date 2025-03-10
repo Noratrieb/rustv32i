@@ -30,7 +30,7 @@ pub struct Phdr {
     pub p_align: u32,
 }
 
-impl<'a> Elf<'a> {
+impl Elf<'_> {
     pub fn header(&self) -> Result<Header> {
         let (ident, rest) = self.content.split_bytes(16)?;
         if ident[..4] != *b"\x7fELF" {

@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Display},
     io::Write,
     ops::{Index, IndexMut},
-    u32,
 };
 
 pub struct Memory {
@@ -22,20 +21,18 @@ impl Memory {
         }
     }
     pub fn slice(&self, addr: u32, len: u32) -> Result<&[u8], Status> {
-        Ok(self
-            .mem
+        self.mem
             .get((addr as usize)..)
             .ok_or(Status::InvalidMemoryAccess(addr))?
             .get(..(len as usize))
-            .ok_or(Status::InvalidMemoryAccess(addr))?)
+            .ok_or(Status::InvalidMemoryAccess(addr))
     }
     pub fn slice_mut(&mut self, addr: u32, len: u32) -> Result<&mut [u8], Status> {
-        Ok(self
-            .mem
+        self.mem
             .get_mut((addr as usize)..)
             .ok_or(Status::InvalidMemoryAccess(addr))?
             .get_mut(..(len as usize))
-            .ok_or(Status::InvalidMemoryAccess(addr))?)
+            .ok_or(Status::InvalidMemoryAccess(addr))
     }
 
     pub fn load_u8(&self, addr: u32) -> Result<u8, Status> {
@@ -48,21 +45,21 @@ impl Memory {
         Ok(u32::from_le_bytes(self.slice(addr, 4)?.try_into().unwrap()))
     }
     pub fn store_u8(&mut self, addr: u32, value: u8) -> Result<(), Status> {
-        Ok(self
-            .slice_mut(addr, 1)?
-            .copy_from_slice(&value.to_le_bytes()))
+        self.slice_mut(addr, 1)?
+            .copy_from_slice(&value.to_le_bytes());
+        Ok(())
     }
     pub fn store_u16(&mut self, addr: u32, value: u16) -> Result<(), Status> {
         self.check_align(addr, 2)?;
-        Ok(self
-            .slice_mut(addr, 2)?
-            .copy_from_slice(&value.to_le_bytes()))
+        self.slice_mut(addr, 2)?
+            .copy_from_slice(&value.to_le_bytes());
+        Ok(())
     }
     pub fn store_u32(&mut self, addr: u32, value: u32) -> Result<(), Status> {
         self.check_align(addr, 4)?;
-        Ok(self
-            .slice_mut(addr, 4)?
-            .copy_from_slice(&value.to_le_bytes()))
+        self.slice_mut(addr, 4)?
+            .copy_from_slice(&value.to_le_bytes());
+        Ok(())
     }
 }
 
@@ -313,17 +310,17 @@ impl Emulator {
             }
             Inst::Sw { offset, src, base } => {
                 let addr = self[base].wrapping_add(offset);
-                self.mem.store_u32(addr, self[src] as u32)?;
+                self.mem.store_u32(addr, self[src])?;
             }
             Inst::Addi { imm, dest, src1 } => {
-                self[dest] = self[src1].wrapping_add(imm as u32);
+                self[dest] = self[src1].wrapping_add(imm);
             }
             Inst::Slti { imm, dest, src1 } => {
                 let result = (self[src1] as i32) < (imm as i32);
                 self[dest] = result as u32;
             }
             Inst::Sltiu { imm, dest, src1 } => {
-                let result = (self[src1] as u32) < imm as u32;
+                let result = self[src1] < imm;
                 self[dest] = result as u32;
             }
             Inst::Andi { imm, dest, src1 } => {
@@ -377,7 +374,7 @@ impl Emulator {
             }
             Inst::Mulhsu { .. } => todo!("mulhsu"),
             Inst::Mulhu { dest, src1, src2 } => {
-                let shifted = ((self[src1] as u64).wrapping_mul(self[src2] as u64) as u64) >> 32;
+                let shifted = ((self[src1] as u64).wrapping_mul(self[src2] as u64)) >> 32;
                 self[dest] = shifted as u32;
             }
             Inst::Div { dest, src1, src2 } => {
