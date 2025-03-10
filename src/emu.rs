@@ -172,10 +172,55 @@ fn hash_color(value: u32) -> impl Display {
 
 impl Emulator {
     pub fn start_linux(&mut self) -> Status {
-        // set top of stack. just some yolo address. with no values there. who needs abi?
-        self[Reg::SP] = 4096 * 8;
+        self.setup_linux_stack().unwrap();
 
         self.execute()
+    }
+
+    fn setup_linux_stack(&mut self) -> Result<(), Status> {
+        // set top of stack. just some yolo address. with no values there. who needs abi?
+        let sp = 4096 * 16;
+        self[Reg::SP] = sp;
+
+        // The x86-64 psABI has a nice diagram of the stack layout (it's not arch specific).
+
+        // | Purpose                          | Start Address | Length         |
+        // |----------------------------------|--------- -----|----------------|
+        // | Information block of strings etc | (high)        | varies         |
+        // | Unspecified                      |               |                |
+        // | Null auxiliary vector entry      |               | word           |
+        // | Auxiliary vector entries         |               | two words each |
+        // | 0                                |               | word           |
+        // | Environment pointers             |               | word each      |
+        // | 0                                | 4+4*argc+sp   | word           |
+        // | Argument pointers                | 4+sp          | argc words     |
+        // | Argument count                   | sp            | word           |
+        // | Undefined                        | (low)         |                |
+
+        let xlen = 4;
+
+        let mut offset: u32 = 0;
+        let mut next_word = || {
+            let n = offset;
+            offset += xlen;
+            sp + n
+        };
+
+        // argc
+        self.mem.store_u32(next_word(), 0)?;
+
+        // null terminated argument pointers... (we have none.)
+        self.mem.store_u32(next_word(), 0)?;
+
+        // null terminated environment pointers... (we have none.)
+        self.mem.store_u32(next_word(), 0)?;
+
+        // null terminated auxiliary vector entries
+        // TODO: add some auxv for the poor process.
+        self.mem.store_u32(next_word(), 0)?;
+
+
+        Ok(())
     }
 
     fn execute(&mut self) -> Status {

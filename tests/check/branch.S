@@ -40,6 +40,15 @@ branch6:
     FAIL
 branch7:
 
+# Backwards jal
+    li t0, 0
+backwards:
+    li t1, 0
+    bne t0, t1, end_backwards
+    li t0, 1
+    jal backwards
+end_backwards:
+
 # Test link registers being set correctly:
     auipc t1, 0
     jal t0, link2

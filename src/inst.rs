@@ -394,13 +394,8 @@ impl Display for AmoOp {
 }
 
 fn sign_extend(value: u32, size: u32) -> u32 {
-    assert!(size <= u32::BITS);
-    let sign = value >> (size - 1);
-    if sign == 1 {
-        (u32::MAX << size) | value
-    } else {
-        value
-    }
+    let right = u32::BITS - size;
+    (((value << right) as i32) >> right) as u32
 }
 
 #[derive(Clone, Copy)]
@@ -462,7 +457,7 @@ impl InstCode {
         self.immediate_u(&[(12..=31, 12)])
     }
     fn imm_j(self) -> u32 {
-        self.immediate_u(&[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)])
+        self.immediate_s(&[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)])
     }
 }
 
