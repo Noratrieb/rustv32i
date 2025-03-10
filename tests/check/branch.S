@@ -43,14 +43,14 @@ branch7:
 # Test link registers being set correctly:
     auipc t1, 0
     jal t0, link2
-    j fail
+    jal t5, fail # force uncompressed 
 link2:
     addi t1, t1, 8 # the instruction following the jump
     bne t1, t0, fail
 
     auipc t1, 0
     jalr t0, 12(t1) # 12 is the three instructions, so to the addi
-    j fail
+    jal t5, fail # force uncompressed 
 
     addi t1, t1, 8 # the instruction following the jump
     bne t0, t1, fail

@@ -1,4 +1,5 @@
 use std::{
+    fs::DirEntry,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -25,50 +26,55 @@ fn check() -> eyre::Result<()> {
             continue;
         }
 
-        write!(std::io::stdout(), "test {name} ...")?;
-        std::io::stdout().flush()?;
-
-        let output = build(&tmpdir.path(), &file.path()).wrap_err(format!("building {name}"))?;
-        let content =
-            std::fs::read(&output).wrap_err(format!("reading output from {}", output.display()))?;
-
-        let status = rustv32i::execute_linux_elf(
-            &content,
-            true,
-            Box::new(|_, xreg| {
-                if xreg[Reg::A7.0 as usize] == u32::MAX {
-                    if xreg[Reg::A0.0 as usize] == 1 {
-                        Err(rustv32i::emu::Status::Exit { code: 0 })
-                    } else {
-                        Err(rustv32i::emu::Status::Trap("wrong exit code"))
-                    }
-                } else {
-                    Err(rustv32i::emu::Status::Trap("wrong syscall"))
-                }
-            }),
-        )
-        .wrap_err(format!("{name} failed"))?;
-
-        if let Status::Exit { code: 0 } = status {
-            writeln!(std::io::stdout(), " ✅")?;
-        } else {
-            bail!("{name} returned an error: {status:?}");
-        }
+        test_case(tmpdir.path(), &file, name, "rv32ima")?;
+        test_case(tmpdir.path(), &file, name, "rv32imac")?;
     }
 
     Ok(())
 }
 
-fn build(tmpdir: &Path, src: &Path) -> eyre::Result<PathBuf> {
+fn test_case(tmpdir: &Path, file: &DirEntry, name: &str, march: &str) -> eyre::Result<()> {
+    let name = format!("{name} ({march})");
+    write!(std::io::stdout(), "test {name} ...")?;
+    std::io::stdout().flush()?;
+
+    eprintln!("---- START TEST {name} -----");
+
+    let output = build(&tmpdir, &file.path(), march).wrap_err(format!("building {name}"))?;
+    let content =
+        std::fs::read(&output).wrap_err(format!("reading output from {}", output.display()))?;
+
+    let status = rustv32i::execute_linux_elf(
+        &content,
+        true,
+        Box::new(|_, xreg| {
+            if xreg[Reg::A7.0 as usize] == u32::MAX {
+                if xreg[Reg::A0.0 as usize] == 1 {
+                    Err(rustv32i::emu::Status::Exit { code: 0 })
+                } else {
+                    Err(rustv32i::emu::Status::Trap("fail"))
+                }
+            } else {
+                Err(rustv32i::emu::Status::Trap("wrong syscall"))
+            }
+        }),
+    )
+    .wrap_err(format!("{name} failed"))?;
+
+    if let Status::Exit { code: 0 } = status {
+        writeln!(std::io::stdout(), " ✅")?;
+        Ok(())
+    } else {
+        bail!("{name} returned an error: {status:?}");
+    }
+}
+
+fn build(tmpdir: &Path, src: &Path, march: &str) -> eyre::Result<PathBuf> {
     let out_path = tmpdir.join(Path::new(src.file_name().unwrap()).with_extension(""));
 
     let mut cmd = std::process::Command::new("clang");
-    cmd.args([
-        "-target",
-        "riscv32-unknown-none-elf",
-        "-nostdlib",
-        "-march=rv32ima",
-    ]);
+    cmd.args(["-target", "riscv32-unknown-none-elf", "-nostdlib"]);
+    cmd.arg(format!("-march={march}"));
     cmd.arg(src);
     cmd.arg("-o");
     cmd.arg(&out_path);

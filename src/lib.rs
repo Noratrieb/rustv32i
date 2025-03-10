@@ -67,6 +67,8 @@ pub fn execute_linux_elf(
         xreg0_value: 0,
         pc: start,
         reservation_set: None,
+        
+        is_breaking: false,
 
         debug,
         ecall_handler,

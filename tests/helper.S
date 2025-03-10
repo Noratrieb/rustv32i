@@ -20,6 +20,7 @@
 .endm
 
 fail:
+    ebreak
     li a7, -1
     li a0, 0
     ecall

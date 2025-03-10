@@ -1,6 +1,7 @@
 use crate::inst::{AmoOp, Inst, InstCode, IsCompressed};
 use std::{
     fmt::{Debug, Display},
+    io::Write,
     ops::{Index, IndexMut},
     u32,
 };
@@ -86,6 +87,8 @@ pub struct Emulator {
     /// to make SC fail if it's not to this address.
     pub reservation_set: Option<u32>,
 
+    pub is_breaking: bool,
+
     pub debug: bool,
     pub ecall_handler: Box<dyn FnMut(&mut Memory, &mut [u32; 32]) -> Result<(), Status>>,
 }
@@ -129,12 +132,20 @@ impl Reg {
 
 impl Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0 == Self::SP.0 {
-            write!(f, "sp")
-        } else if self.0 == Self::RA.0 {
-            write!(f, "ra")
-        } else {
-            write!(f, "x{}", self.0)
+        let n = self.0;
+        match n {
+            0 => write!(f, "zero"),
+            1 => write!(f, "ra"),
+            2 => write!(f, "sp"),
+            3 => write!(f, "gp"),
+            4 => write!(f, "tp"),
+            5..=7 => write!(f, "t{}", n - 5),
+            8 => write!(f, "s0"),
+            9 => write!(f, "s1"),
+            10..=17 => write!(f, "a{}", n - 10),
+            18..=27 => write!(f, "s{}", n - 18 + 2),
+            28..=31 => write!(f, "t{}", n - 28 + 3),
+            _ => unreachable!("invalid register"),
         }
     }
 }
@@ -163,6 +174,10 @@ impl Emulator {
     fn step(&mut self) -> Result<(), Status> {
         let code = self.mem.load_u32(self.pc)?;
         let (inst, was_compressed) = Inst::decode(code)?;
+
+        if self.is_breaking {
+            self.debug_interactive();
+        }
 
         if self.debug {
             println!("executing 0x{:x} {inst:?}", self.pc);
@@ -314,7 +329,13 @@ impl Emulator {
             Inst::Ecall => {
                 (self.ecall_handler)(&mut self.mem, &mut self.xreg)?;
             }
-            Inst::Ebreak => return Err(Status::Ebreak),
+            Inst::Ebreak => {
+                if self.debug {
+                    self.is_breaking = true;
+                } else {
+                    return Err(Status::Ebreak);
+                }
+            }
             Inst::Mul { dest, src1, src2 } => {
                 self[dest] = ((self[src1] as i32).wrapping_mul(self[src2] as i32)) as u32;
             }
@@ -357,8 +378,7 @@ impl Emulator {
                 if self[src2] == 0 {
                     self[dest] = self[src1];
                 } else {
-                    dbg!(self[src1], self[src2]);
-                    self[dest] = dbg!(self[src1] % self[src2]);
+                    self[dest] = self[src1] % self[src2];
                 }
             }
             Inst::AmoW {
@@ -413,5 +433,130 @@ impl Emulator {
             self.set_pc(next_pc)?;
         }
         Ok(())
+    }
+
+    fn debug_interactive(&mut self) {
+        use owo_colors::OwoColorize;
+        loop {
+            print!("> ");
+            std::io::stdout().flush().unwrap();
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim();
+            match input {
+                "c" => {
+                    self.is_breaking = false;
+                    return;
+                }
+                "s" => {
+                    return;
+                }
+                "p" => {
+                    let format_value = |v: u32| {
+                        if v == 0 {
+                            format!("{:0>8x}", v.black())
+                        } else {
+                            format!("{:0>8x}", v)
+                        }
+                    };
+                    let r = |i| format_value(self.xreg[i]);
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "ra".red(),
+                        r(1),
+                        "sp".red(),
+                        r(2),
+                        "gp".red(),
+                        r(3),
+                        "tp".red(),
+                        r(4)
+                    );
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "a0".green(),
+                        r(10),
+                        "a1".green(),
+                        r(11),
+                        "a2".green(),
+                        r(12),
+                        "a3".green(),
+                        r(13)
+                    );
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "a4".green(),
+                        r(14),
+                        "a5".green(),
+                        r(15),
+                        "a6".green(),
+                        r(16),
+                        "a7".green(),
+                        r(17)
+                    );
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "s0".cyan(),
+                        r(8),
+                        "s1".cyan(),
+                        r(9),
+                        "s2".cyan(),
+                        r(18),
+                        "s3".cyan(),
+                        r(19)
+                    );
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "s4".cyan(),
+                        r(20),
+                        "s5".cyan(),
+                        r(21),
+                        "s6".cyan(),
+                        r(22),
+                        "s7".cyan(),
+                        r(23)
+                    );
+                    println!(
+                        "{}: {} | {}: {} | {}: {} | {}: {}",
+                        "s8".cyan(),
+                        r(24),
+                        "s9".cyan(),
+                        r(25),
+                        "s10".cyan(),
+                        r(26),
+                        "s11".cyan(),
+                        r(27)
+                    );
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "t0".yellow(),
+                        r(5),
+                        "t1".yellow(),
+                        r(6),
+                        "t2".yellow(),
+                        r(7),
+                        "t3".yellow(),
+                        r(28)
+                    );
+                    println!(
+                        "{}: {} | {}: {} |  {}: {} |  {}: {}",
+                        "t4".yellow(),
+                        r(29),
+                        "t5".yellow(),
+                        r(30),
+                        "t6".yellow(),
+                        r(31),
+                        "pc".red(),
+                        format_value(self.pc)
+                    );
+                }
+                _ => println!(
+                    "commands:
+- ?: help
+- p: print registers
+- c: continue until next breakpoint
+- s: step one instruction"
+                ),
+            }
+        }
     }
 }

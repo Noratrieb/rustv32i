@@ -602,7 +602,7 @@ impl Inst {
                 },
                 // C.LI -> addi \rd, zero, \imm
                 0b010 => Inst::Addi {
-                    imm: code.immediate_s(&[(2..=4, 0), (12..=12, 5)]),
+                    imm: code.immediate_s(&[(2..=6, 0), (12..=12, 5)]),
                     dest: code.rd(),
                     src1: Reg::ZERO,
                 },
