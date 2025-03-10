@@ -11,6 +11,6 @@ A small RISC-V emulator written in Rust.
     - [x] Zaamo standard extension
 - [ ] F standard extension
 - [ ] D standard extension
-- [ ] C standard extension
+- [x] C standard extension
 
 - [x] Zihintpause standard extension

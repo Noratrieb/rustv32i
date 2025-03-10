@@ -62,6 +62,10 @@ START_TEST
     CASE xor 0b101, 0b100, 0b001
 
     CASE sll, 2, 1, 4
+    CASE sll, 2, 20, 2097152
+    CASE sll, 2, 30, 2147483648
+    CASE sll, 2, 31, 0
+    CASER sll, 2, 32, 2 # error for immediate
     CASE sll, 0, 10, 0
     CASE sll, 10, 0, 10
     CASE sll, -1, 31, -2147483648

@@ -244,17 +244,13 @@ impl Display for Inst {
             Inst::Sb { offset, src, base } => write!(f, "sb {src}, {}({base})", offset as i32),
             Inst::Sh { offset, src, base } => write!(f, "sh {src}, {}({base})", offset as i32),
             Inst::Sw { offset, src, base } => write!(f, "sw {src}, {}({base})", offset as i32),
-            Inst::Addi {
-                imm,
-                dest: rd,
-                src1: rs1,
-            } => {
-                if rs1.0 == 0 {
-                    write!(f, "li {rd}, {}", imm as i32)
-                } else if imm == 0 {
-                    write!(f, "mv {rd}, {rs1}")
+            Inst::Addi { imm, dest, src1 } => {
+                if dest.0 == 0 && src1.0 == 0 {
+                    write!(f, "nop")
+                } else if src1.0 == 0 {
+                    write!(f, "li {dest}, {}", imm as i32)
                 } else {
-                    write!(f, "addi {rd}, {rs1}, {}", imm as i32)
+                    write!(f, "addi {dest}, {src1}, {}", imm as i32)
                 }
             }
             Inst::Slti {
@@ -297,7 +293,13 @@ impl Display for Inst {
                 dest,
                 src1: rs1,
             } => write!(f, "srai {dest}, {rs1}, {}", imm as i32),
-            Inst::Add { dest, src1, src2 } => write!(f, "add {dest}, {src1}, {src2}"),
+            Inst::Add { dest, src1, src2 } => {
+                if src1.0 == 0 {
+                    write!(f, "mv {dest}, {src2}")
+                } else {
+                    write!(f, "add {dest}, {src1}, {src2}")
+                }
+            }
             Inst::Sub { dest, src1, src2 } => write!(f, "sub {dest}, {src1}, {src2}"),
             Inst::Sll { dest, src1, src2 } => write!(f, "sll {dest}, {src1}, {src2}"),
             Inst::Slt { dest, src1, src2 } => write!(f, "slt {dest}, {src1}, {src2}"),
@@ -501,10 +503,14 @@ impl InstCodeC {
     fn funct3(self) -> u32 {
         self.extract(13..=15)
     }
+    fn funct2(self) -> u32 {
+        self.extract(10..=11)
+    }
     /// rd/rs1 (7..=11)
     fn rd(self) -> Reg {
         Reg(self.extract(7..=11) as u32)
     }
+    /// rs2 (2..=6)
     fn rs2(self) -> Reg {
         Reg(self.extract(2..=6) as u32)
     }
@@ -552,6 +558,12 @@ impl Inst {
         let inst = match code.quadrant() {
             // C0
             0b00 => match code.funct3() {
+                // C.ADDI4SPN -> addi \rd', sp, \imm
+                0b000 => Inst::Addi {
+                    imm: code.immediate_u(&[(5..=5, 3), (6..=6, 2), (7..=10, 6), (11..=12, 4)]),
+                    dest: code.rs2_short(),
+                    src1: Reg::SP,
+                },
                 // C.LW -> lw \dest \offset(\base)
                 0b010 => Inst::Lw {
                     offset: code.immediate_u(&[(10..=12, 3), (5..=5, 6), (6..=6, 2)]),
@@ -594,6 +606,76 @@ impl Inst {
                     dest: code.rd(),
                     src1: Reg::ZERO,
                 },
+                // Arithmetic instructions
+                0b100 => {
+                    let bit12 = code.extract(12..=12);
+                    match code.funct2() {
+                        // C.SRLI -> srli \rd', \rd', \imm
+                        0b00 => {
+                            if bit12 != 0 {
+                                return Err(Status::IllegalInstruction(code.into(), "imm"));
+                            }
+
+                            Inst::Srli {
+                                imm: code.immediate_u(&[(2..=6, 0), (12..=12, 5)]),
+                                dest: code.rs1_short(),
+                                src1: code.rs1_short(),
+                            }
+                        }
+                        // C.SRAI -> srai \rd', \rd', \imm
+                        0b01 => {
+                            if bit12 != 0 {
+                                return Err(Status::IllegalInstruction(code.into(), "imm"));
+                            }
+
+                            Inst::Srai {
+                                imm: code.immediate_u(&[(2..=6, 0), (12..=12, 5)]),
+                                dest: code.rs1_short(),
+                                src1: code.rs1_short(),
+                            }
+                        }
+                        // C.ANDI -> andi \rd', \rd', \imm
+                        0b10 => Inst::Andi {
+                            imm: code.immediate_u(&[(2..=6, 0), (12..=12, 5)]),
+                            dest: code.rs1_short(),
+                            src1: code.rs1_short(),
+                        },
+                        0b11 => {
+                            if bit12 != 0 {
+                                return Err(Status::IllegalInstruction(code.into(), "bit 12"));
+                            }
+                            let funct2 = code.extract(5..=6);
+                            match funct2 {
+                                // C.SUB -> sub \rd', \rd', \rs2'
+                                0b00 => Inst::Sub {
+                                    dest: code.rs1_short(),
+                                    src1: code.rs1_short(),
+                                    src2: code.rs2_short(),
+                                },
+                                // C.XOR -> xor \rd', \rd', \rs2'
+                                0b01 => Inst::Xor {
+                                    dest: code.rs1_short(),
+                                    src1: code.rs1_short(),
+                                    src2: code.rs2_short(),
+                                },
+                                // C.OR -> or \rd', \rd', \rs2'
+                                0b10 => Inst::Or {
+                                    dest: code.rs1_short(),
+                                    src1: code.rs1_short(),
+                                    src2: code.rs2_short(),
+                                },
+                                // C.AND -> and \rd', \rd', \rs2'
+                                0b11 => Inst::And {
+                                    dest: code.rs1_short(),
+                                    src1: code.rs1_short(),
+                                    src2: code.rs2_short(),
+                                },
+                                _ => unreachable!("only two bits"),
+                            }
+                        }
+                        _ => unreachable!("only two bits"),
+                    }
+                }
                 // C.J -> jal zero, \offset
                 0b101 => Inst::Jal {
                     offset: code.immediate_s(&[
@@ -662,6 +744,17 @@ impl Inst {
             },
             // C2
             0b10 => match code.funct3() {
+                // C.SLLI -> slli \rd, \rd, \imm
+                0b000 => {
+                    if code.extract(12..=12) != 0 {
+                        return Err(Status::IllegalInstruction(code.into(), "imm"));
+                    }
+                    Inst::Slli {
+                        imm: code.immediate_u(&[(2..=6, 0), (12..=12, 5)]),
+                        dest: code.rd(),
+                        src1: code.rd(),
+                    }
+                }
                 // C.LWSP -> lw \reg \offset(sp)
                 0b010 => {
                     let dest = code.rd();
@@ -681,14 +774,23 @@ impl Inst {
                     let rd_rs1 = code.rd();
                     match (bit, rd_rs1.0, rs2.0) {
                         // C.JR -> jalr zero, 0(\rs1)
-                        (0, _, 0) if rd_rs1.0 != 0 => Inst::Jalr {
-                            offset: 0,
-                            base: rd_rs1,
-                            dest: Reg::ZERO,
+                        (0, _, 0) => {
+                            if rd_rs1.0 == 0 {
+                                return Err(Status::IllegalInstruction(code.into(), "rs1"));
+                            }
+                            Inst::Jalr {
+                                offset: 0,
+                                base: rd_rs1,
+                                dest: Reg::ZERO,
+                            }
+                        }
+                        // C.MV -> add \rd, x0, \rs2
+                        (0, _, _) => Inst::Add {
+                            dest: code.rd(),
+                            src1: Reg::ZERO,
+                            src2: code.rs2(),
                         },
-                        // C.MV
-                        (0, _, _) if rd_rs1.0 != 0 && rs2.0 != 0 => todo!(),
-                        // C.EBREAK
+                        // C.EBREAK -> ebreak
                         (1, 0, 0) => Inst::Ebreak,
                         // C.JALR -> jalr ra, 0(\rs1)
                         (1, _, 0) if rd_rs1.0 != 0 => Inst::Jalr {
@@ -696,11 +798,11 @@ impl Inst {
                             base: rd_rs1,
                             dest: Reg::RA,
                         },
-                        // C.ADD
-                        (1, _, _) if rd_rs1.0 != 0 && rs2.0 != 0 => Inst::Add {
-                            dest: todo!(),
-                            src1: todo!(),
-                            src2: todo!(),
+                        // C.ADD -> add \rd, \rd, \rs2
+                        (1, _, _) => Inst::Add {
+                            dest: rd_rs1,
+                            src1: rd_rs1,
+                            src2: rs2,
                         },
                         _ => return Err(Status::IllegalInstruction(code.into(), "inst")),
                     }
