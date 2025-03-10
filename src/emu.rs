@@ -1,4 +1,4 @@
-use crate::inst::{AmoOp, Inst, InstCode};
+use crate::inst::{AmoOp, Inst, InstCode, IsCompressed};
 use std::{
     fmt::{Debug, Display},
     ops::{Index, IndexMut},
@@ -162,12 +162,16 @@ impl Emulator {
 
     fn step(&mut self) -> Result<(), Status> {
         let code = self.mem.load_u32(self.pc)?;
-        let inst = Inst::decode(code)?;
+        let (inst, was_compressed) = Inst::decode(code)?;
 
         if self.debug {
             println!("executing 0x{:x} {inst:?}", self.pc);
         }
 
+        let next_pc = self.pc.wrapping_add(match was_compressed {
+            IsCompressed::Yes => 2,
+            IsCompressed::No => 4,
+        });
         let mut jumped = false;
 
         match inst {
@@ -175,13 +179,13 @@ impl Emulator {
             Inst::Auipc { uimm, dest } => self[dest] = self.pc.wrapping_add(uimm),
             Inst::Jal { offset, dest } => {
                 let target = self.pc.wrapping_add(offset);
-                self[dest] = self.pc.wrapping_add(4);
+                self[dest] = next_pc;
                 self.set_pc(target)?;
                 jumped = true;
             }
             Inst::Jalr { offset, base, dest } => {
                 let target = self[base].wrapping_add(offset) & !1;
-                self[dest] = self.pc.wrapping_add(4);
+                self[dest] = next_pc;
                 self.set_pc(target)?;
                 jumped = true;
             }
@@ -406,7 +410,7 @@ impl Emulator {
         }
 
         if !jumped {
-            self.set_pc(self.pc + 4)?;
+            self.set_pc(next_pc)?;
         }
         Ok(())
     }

@@ -5,77 +5,127 @@ use std::ops::RangeInclusive;
 #[derive(Clone, Copy)]
 #[rustfmt::skip]
 pub enum Inst {
+    /// Load Upper Immediate
     Lui { uimm: u32, dest: Reg },
+    /// Add Upper Immediate to PC
     Auipc { uimm: u32, dest: Reg },
 
+    /// Jump And Link
     Jal { offset: u32, dest: Reg },
+    /// Jump And Link Register (indirect)
     Jalr { offset: u32, base: Reg, dest: Reg },
 
+    /// Branch Equal
     Beq { offset: u32, src1: Reg, src2: Reg },
+    /// Branch Not Equal
     Bne { offset: u32, src1: Reg, src2: Reg },
+    /// Branch Less Than (signed)
     Blt { offset: u32, src1: Reg, src2: Reg },
+    /// Branch Greater or Equal (signed)
     Bge { offset: u32, src1: Reg, src2: Reg },
+    /// Branch Less Than Unsigned
     Bltu { offset: u32, src1: Reg, src2: Reg },
+    /// Branch Greater or Equal Unsigned
     Bgeu { offset: u32, src1: Reg, src2: Reg },
 
+    /// Load Byte (sign-ext)
     Lb { offset: u32, dest: Reg, base: Reg },
+    /// Load Unsigned Byte (zero-ext)
     Lbu { offset: u32, dest: Reg, base: Reg },
+    /// Load Half (sign-ext)
     Lh { offset: u32, dest: Reg, base: Reg },
+    /// Load Unsigned Half (zero-ext)
     Lhu { offset: u32, dest: Reg, base: Reg },
+    /// Load Word
     Lw { offset: u32, dest: Reg, base: Reg },
 
+    /// Store Byte
     Sb { offset: u32, src: Reg, base: Reg },
+    /// Store Half
     Sh { offset: u32, src: Reg, base: Reg },
+    /// Store Word
     Sw { offset: u32, src: Reg, base: Reg },
 
+    /// Add Immediate
     Addi { imm: u32, dest: Reg, src1: Reg },
+    /// Set Less Than Immediate (signed)
     Slti { imm: u32, dest: Reg, src1: Reg },
+    /// Set Less Than Immediate Unsigned
     Sltiu { imm: u32, dest: Reg, src1: Reg },
+    /// XOR Immediate
     Xori { imm: u32, dest: Reg, src1: Reg },
+    /// OR Immediate
     Ori { imm: u32, dest: Reg, src1: Reg },
+    /// AND Immediate
     Andi { imm: u32, dest: Reg, src1: Reg },
+    /// Shift Left Logical Immediate
     Slli { imm: u32, dest: Reg, src1: Reg },
+    /// Shift Right Logical Immediate (unsigned)
     Srli { imm: u32, dest: Reg, src1: Reg },
+    /// Shift Right Arithmetic Immediate (signed)
     Srai { imm: u32, dest: Reg, src1: Reg },
 
+    /// Add
     Add { dest: Reg, src1: Reg, src2: Reg },
+    /// Subtract
     Sub { dest: Reg, src1: Reg, src2: Reg },
+    /// Shift Left Logical
     Sll { dest: Reg, src1: Reg, src2: Reg },
+    /// Set Less Than (signed)
     Slt { dest: Reg, src1: Reg, src2: Reg },
+    /// Set Less Than Unsigned
     Sltu { dest: Reg, src1: Reg, src2: Reg },
+    /// XOR
     Xor { dest: Reg, src1: Reg, src2: Reg },
+    /// Shift Right Logical (unsigned)
     Srl { dest: Reg, src1: Reg, src2: Reg },
+    /// Shift Right Arithmetic (unsigned)
     Sra { dest: Reg, src1: Reg, src2: Reg },
+    /// OR
     Or { dest: Reg, src1: Reg, src2: Reg },
+    /// AND
     And { dest: Reg, src1: Reg, src2: Reg },
-
+    /// Memory Fence
     Fence { fence: Fence },
 
+    /// ECALL, call into environment
     Ecall,
+    /// EBREAK, break into debugger
     Ebreak,
 
-    // M
+    // ------------- M extension -------------
+    /// Multiply
     Mul { dest: Reg, src1: Reg, src2: Reg },
+    /// Mul Upper Half Signed-Signed
     Mulh { dest: Reg, src1: Reg, src2: Reg },
+    /// Mul Upper Half Signed-Unsigned
     Mulhsu { dest: Reg, src1: Reg, src2: Reg },
+    /// Mul Upper Half Unsigned-Unsigned
     Mulhu { dest: Reg, src1: Reg, src2: Reg },
+    /// Divide (signed)
     Div { dest: Reg, src1: Reg, src2: Reg },
+    /// Divide Unsigned
     Divu { dest: Reg, src1: Reg, src2: Reg },
+    /// Remainder (signed)
     Rem { dest: Reg, src1: Reg, src2: Reg },
+    /// Remainder Unsigned
     Remu { dest: Reg, src1: Reg, src2: Reg },
 
-    // A
+    // ------------- A extension -------------
+    /// Load-Reserved Word
     LrW {
         order: AmoOrdering,
         dest: Reg,
         addr: Reg,  
     },
+    /// Store-Conditional Word
     ScW {
         order: AmoOrdering,
         dest: Reg,
         addr: Reg,
         src: Reg,
     },
+    /// Atomic Memory Operation
     AmoW {
         order: AmoOrdering,
         op: AmoOp,
@@ -337,21 +387,11 @@ impl Display for AmoOp {
     }
 }
 
-fn sign_extend32(value: u32, size: u32) -> u32 {
+fn sign_extend(value: u32, size: u32) -> u32 {
     assert!(size <= u32::BITS);
     let sign = value >> (size - 1);
     let imm = if sign == 1 {
         (u32::MAX << size) | value
-    } else {
-        value
-    };
-    imm
-}
-fn sign_extend16(value: u16, size: u16) -> u16 {
-    assert!(size <= u16::BITS as u16);
-    let sign = value >> (size - 1);
-    let imm = if sign == 1 {
-        (u16::MAX << size) | value
     } else {
         value
     };
@@ -383,7 +423,7 @@ impl InstCode {
             let this_size = from.end() - from.start() + 1;
             size = size.max(*to + this_size);
         }
-        sign_extend32(imm, size)
+        sign_extend(imm, size)
     }
 
     fn opcode(self) -> u32 {
@@ -431,38 +471,54 @@ impl Debug for InstCode {
 pub struct InstCodeC(u16);
 
 impl InstCodeC {
-    fn extract(self, range: RangeInclusive<u16>) -> u16 {
-        let end_span = 32 - (range.end() + 1);
-        (self.0 << (end_span)) >> (end_span + range.start())
+    fn extract(self, range: RangeInclusive<u32>) -> u32 {
+        let end_span = u16::BITS - (range.end() + 1);
+        ((self.0 << (end_span)) >> (end_span + range.start())) as u32
     }
-    fn immediate_u(self, mappings: &[(RangeInclusive<u16>, u16)]) -> u16 {
+    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
         let mut imm = 0;
         for (from, to) in mappings {
             let value = self.extract(from.clone());
             imm |= value << to;
         }
-        imm
+        imm as u32
     }
-
-    fn immediate_s(self, mappings: &[(RangeInclusive<u16>, u16)]) -> u16 {
+    fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
         let mut imm = 0;
         let mut size = 0;
         for (from, to) in mappings {
+            assert!(from.start() <= from.end());
             let value = self.extract(from.clone());
             imm |= value << to;
             let this_size = from.end() - from.start() + 1;
             size = size.max(*to + this_size);
         }
-        sign_extend16(imm, size)
+        sign_extend(imm, size)
     }
-    fn op(self) -> u16 {
+    fn quadrant(self) -> u16 {
         self.0 & 0b11
     }
-    fn funct3(self) -> u16 {
+    fn funct3(self) -> u32 {
         self.extract(13..=15)
     }
+    /// rd/rs1 (7..=11)
     fn rd(self) -> Reg {
         Reg(self.extract(7..=11) as u32)
+    }
+    fn rs2(self) -> Reg {
+        Reg(self.extract(2..=6) as u32)
+    }
+    /// rs1' (7..=9)
+    fn rs1_short(self) -> Reg {
+        let smol_reg = self.extract(7..=9);
+        // map to x8..=x15
+        Reg(smol_reg as u32 + 8)
+    }
+    /// rs2' (2..=4)
+    fn rs2_short(self) -> Reg {
+        let smol_reg = self.extract(2..=4);
+        // map to x8..=x15
+        Reg(smol_reg as u32 + 8)
     }
 }
 
@@ -472,44 +528,191 @@ impl From<InstCodeC> for InstCode {
     }
 }
 
+pub enum IsCompressed {
+    Yes,
+    No,
+}
+
 impl Inst {
-    pub fn decode(code: u32) -> Result<Inst, Status> {
+    pub fn decode(code: u32) -> Result<(Inst, IsCompressed), Status> {
         let is_compressed = (code & 0b11) != 0b11;
         if is_compressed {
-            Self::decode_compressed(code as u16)
+            Ok((Self::decode_compressed(code as u16)?, IsCompressed::Yes))
         } else {
-            Self::decode_normal(code)
+            Ok((Self::decode_normal(code)?, IsCompressed::No))
         }
     }
 
     fn decode_compressed(code: u16) -> Result<Inst, Status> {
         let code = InstCodeC(code);
+        if code.0 == 0 {
+            return Err(Status::IllegalInstruction(code.into(), "null instruction"));
+        }
 
-        let inst = match code.op() {
+        let inst = match code.quadrant() {
             // C0
-            0b00 => todo!(),
+            0b00 => match code.funct3() {
+                // C.LW -> lw \dest \offset(\base)
+                0b010 => Inst::Lw {
+                    offset: code.immediate_u(&[(10..=12, 3), (5..=5, 6), (6..=6, 2)]),
+                    dest: code.rs2_short(),
+                    base: code.rs1_short(),
+                },
+                // C.SW -> sw \src, \offset(\base)
+                0b110 => Inst::Sw {
+                    offset: code.immediate_u(&[(10..=12, 3), (5..=5, 6), (6..=6, 2)]),
+                    src: code.rs2_short(),
+                    base: code.rs1_short(),
+                },
+                _ => return Err(Status::IllegalInstruction(code.into(), "funct3")),
+            },
             // C1
-            0b01 => todo!(),
-            // C2
-            0b10 => {
-                match code.funct3() {
-                    // C.LDSP
-                    010 => {
-                        let dest = code.rd();
-                        if dest.0 == 0 {
-                            return Err(Status::IllegalInstruction(code.into(), "rd"));
-                        }
-                        let imm = code.immediate_s(&[(12..=12, 5), (4..=6, 2), (2..=3, 6)]);
-
-                        Inst::Lw {
-                            offset: imm as u32,
-                            dest,
-                            base: Reg::SP,
+            0b01 => match code.funct3() {
+                // C.ADDI -> addi \rd, \rd, \imm
+                0b000 => Inst::Addi {
+                    imm: code.immediate_s(&[(2..=6, 0), (12..=12, 5)]),
+                    dest: code.rd(),
+                    src1: code.rd(),
+                },
+                // C.JAL -> jal ra, \offset
+                0b001 => Inst::Jal {
+                    offset: code.immediate_s(&[
+                        (2..=2, 5),
+                        (3..=5, 1),
+                        (6..=6, 7),
+                        (7..=7, 6),
+                        (8..=8, 10),
+                        (9..=10, 8),
+                        (11..=11, 4),
+                        (12..=12, 11),
+                    ]),
+                    dest: Reg::RA,
+                },
+                // C.LI -> addi \rd, zero, \imm
+                0b010 => Inst::Addi {
+                    imm: code.immediate_s(&[(2..=4, 0), (12..=12, 5)]),
+                    dest: code.rd(),
+                    src1: Reg::ZERO,
+                },
+                // C.J -> jal zero, \offset
+                0b101 => Inst::Jal {
+                    offset: code.immediate_s(&[
+                        (2..=2, 5),
+                        (3..=5, 1),
+                        (6..=6, 7),
+                        (7..=7, 6),
+                        (8..=8, 10),
+                        (9..=10, 8),
+                        (11..=11, 4),
+                        (12..=12, 11),
+                    ]),
+                    dest: Reg::ZERO,
+                },
+                0b011 => {
+                    match code.rd().0 {
+                        // C.ADDI16SP -> addi sp, sp, \imm
+                        2 => Inst::Addi {
+                            imm: code.immediate_s(&[
+                                (2..=2, 2),
+                                (3..=4, 7),
+                                (5..=5, 6),
+                                (6..=6, 4),
+                            ]),
+                            dest: Reg::SP,
+                            src1: Reg::SP,
+                        },
+                        // C.LUI -> lui \rd, \imm
+                        _ => {
+                            let uimm = code.immediate_s(&[(2..=6, 12), (12..=12, 17)]);
+                            if uimm == 0 {
+                                return Err(Status::IllegalInstruction(code.into(), "imm"));
+                            }
+                            Inst::Lui {
+                                uimm,
+                                dest: code.rd(),
+                            }
                         }
                     }
-                    _ => return Err(Status::IllegalInstruction(code.into(), "funct3")),
                 }
-            }
+                // C.BEQZ -> beq \rs1', zero, \offset
+                0b110 => Inst::Beq {
+                    offset: code.immediate_s(&[
+                        (2..=2, 5),
+                        (3..=4, 1),
+                        (5..=6, 6),
+                        (10..=11, 3),
+                        (12..=12, 8),
+                    ]),
+                    src1: code.rs1_short(),
+                    src2: Reg::ZERO,
+                },
+                // C.BEQZ -> bne \rs1', zero, \offset
+                0b111 => Inst::Bne {
+                    offset: code.immediate_s(&[
+                        (2..=2, 5),
+                        (3..=4, 1),
+                        (5..=6, 6),
+                        (10..=11, 3),
+                        (12..=12, 8),
+                    ]),
+                    src1: code.rs1_short(),
+                    src2: Reg::ZERO,
+                },
+                _ => return Err(Status::IllegalInstruction(code.into(), "funct3")),
+            },
+            // C2
+            0b10 => match code.funct3() {
+                // C.LWSP -> lw \reg \offset(sp)
+                0b010 => {
+                    let dest = code.rd();
+                    if dest.0 == 0 {
+                        return Err(Status::IllegalInstruction(code.into(), "rd"));
+                    }
+
+                    Inst::Lw {
+                        offset: code.immediate_u(&[(12..=12, 5), (4..=6, 2), (2..=3, 6)]),
+                        dest,
+                        base: Reg::SP,
+                    }
+                }
+                0b100 => {
+                    let bit = code.extract(12..=12);
+                    let rs2 = code.rs2();
+                    let rd_rs1 = code.rd();
+                    match (bit, rd_rs1.0, rs2.0) {
+                        // C.JR -> jalr zero, 0(\rs1)
+                        (0, _, 0) if rd_rs1.0 != 0 => Inst::Jalr {
+                            offset: 0,
+                            base: rd_rs1,
+                            dest: Reg::ZERO,
+                        },
+                        // C.MV
+                        (0, _, _) if rd_rs1.0 != 0 && rs2.0 != 0 => todo!(),
+                        // C.EBREAK
+                        (1, 0, 0) => Inst::Ebreak,
+                        // C.JALR -> jalr ra, 0(\rs1)
+                        (1, _, 0) if rd_rs1.0 != 0 => Inst::Jalr {
+                            offset: 0,
+                            base: rd_rs1,
+                            dest: Reg::RA,
+                        },
+                        // C.ADD
+                        (1, _, _) if rd_rs1.0 != 0 && rs2.0 != 0 => Inst::Add {
+                            dest: todo!(),
+                            src1: todo!(),
+                            src2: todo!(),
+                        },
+                        _ => return Err(Status::IllegalInstruction(code.into(), "inst")),
+                    }
+                }
+                // C.SWSP -> sw \reg \offset(sp)
+                0b110 => Inst::Sw {
+                    offset: code.immediate_u(&[(7..=8, 6), (9..=12, 2)]),
+                    src: code.rs2(),
+                    base: Reg::SP,
+                },
+                _ => return Err(Status::IllegalInstruction(code.into(), "funct3")),
+            },
             _ => return Err(Status::IllegalInstruction(code.into(), "op")),
         };
         Ok(inst)
