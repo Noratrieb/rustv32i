@@ -4,10 +4,12 @@ use rustv32i::emu::{self, Memory, Reg};
 fn main() -> eyre::Result<()> {
     let content = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();
 
+    let mut syscall_state = SyscallState { set_child_tid: 0 };
+
     let status = rustv32i::execute_linux_elf(
         &content,
         std::env::args().any(|arg| arg == "--debug"),
-        Box::new(ecall_handler),
+        Box::new(move |mem, xreg| ecall_handler(mem, xreg, &mut syscall_state)),
     )?;
 
     match status {
@@ -21,13 +23,24 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Status> {
+struct SyscallState {
+    set_child_tid: u32,
+}
+
+fn ecall_handler(
+    mem: &mut Memory,
+    xreg: &mut [u32; 32],
+    syscall_state: &mut SyscallState,
+) -> Result<(), emu::Status> {
     let nr = xreg[Reg::A7.0 as usize];
 
+    let arg0 = xreg[Reg::A0.0 as usize];
+
+    // https://jborza.com/post/2021-05-11-riscv-linux-syscalls/
     match nr {
         // read
         63 => {
-            let fd = xreg[Reg::A0.0 as usize];
+            let fd = arg0;
             let ptr = xreg[Reg::A1.0 as usize];
             let len = xreg[Reg::A2.0 as usize];
 
@@ -44,7 +57,7 @@ fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Stat
         }
         // write
         64 => {
-            let fd = xreg[Reg::A0.0 as usize];
+            let fd = arg0;
             let ptr = xreg[Reg::A1.0 as usize];
             let len = xreg[Reg::A2.0 as usize];
 
@@ -64,6 +77,13 @@ fn ecall_handler(mem: &mut Memory, xreg: &mut [u32; 32]) -> Result<(), emu::Stat
             return Err(emu::Status::Exit {
                 code: xreg[Reg::A0.0 as usize] as i32,
             });
+        }
+        // <https://man7.org/linux/man-pages/man2/set_tid_address.2.html>
+        96 => {
+            let tidptr = arg0;
+            syscall_state.set_child_tid = tidptr;
+
+            xreg[Reg::A0.0 as usize] = 1; // thread ID
         }
         _ => {
             todo!("unkonwn syscall: {nr}");
