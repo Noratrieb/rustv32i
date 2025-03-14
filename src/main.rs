@@ -1,16 +1,35 @@
+use std::io::Write;
+
 use eyre::eyre;
 use rustv32i::emu::{self, Memory, Reg};
 
 fn main() -> eyre::Result<()> {
     let content = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();
 
+    let break_addr = std::env::args()
+        .skip_while(|arg| arg != "--break")
+        .nth(1)
+        .map(|addr| {
+            if let Some(addr) = addr.strip_prefix("0x") {
+                u32::from_str_radix(addr, 16)
+            } else {
+                u32::from_str_radix(&addr, 10)
+            }
+        })
+        .unwrap_or(Ok(0))?;
+
+    let debug = std::env::args().any(|arg| arg == "--debug");
+
     let mut syscall_state = SyscallState { set_child_tid: 0 };
 
     let status = rustv32i::execute_linux_elf(
         &content,
-        std::env::args().any(|arg| arg == "--debug"),
+        debug,
+        break_addr,
         Box::new(move |mem, xreg| ecall_handler(mem, xreg, &mut syscall_state)),
     )?;
+
+    std::io::stdout().flush()?;
 
     match status {
         emu::Status::Exit { code } => {

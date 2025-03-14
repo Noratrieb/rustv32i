@@ -10,6 +10,7 @@ const MEMORY_SIZE: usize = 2 << 21;
 pub fn execute_linux_elf(
     elf: &[u8],
     debug: bool,
+    break_addr: u32,
     ecall_handler: Box<dyn FnMut(&mut emu::Memory, &mut [u32; 32]) -> Result<(), emu::Status>>,
 ) -> eyre::Result<emu::Status> {
     let elf = elf::Elf { content: elf };
@@ -67,9 +68,10 @@ pub fn execute_linux_elf(
         xreg0_value: 0,
         pc: start,
         reservation_set: None,
-        
+
         is_breaking: false,
 
+        break_pc: break_addr,
         debug,
         ecall_handler,
     };

@@ -47,6 +47,7 @@ fn test_case(tmpdir: &Path, file: &DirEntry, name: &str, march: &str) -> eyre::R
     let status = rustv32i::execute_linux_elf(
         &content,
         true,
+        0,
         Box::new(|_, xreg| {
             if xreg[Reg::A7.0 as usize] == u32::MAX {
                 if xreg[Reg::A0.0 as usize] == 1 {

@@ -1,4 +1,4 @@
-use crate::inst::{AmoOp, Inst, InstCode, IsCompressed};
+use crate::inst::{AmoOp, DecodeError, Inst, IsCompressed};
 use std::{
     fmt::{Debug, Display},
     io::Write,
@@ -66,12 +66,18 @@ impl Memory {
 #[derive(Debug)]
 pub enum Status {
     Trap(&'static str),
-    IllegalInstruction(InstCode, &'static str),
+    IllegalInstruction(DecodeError),
     InvalidMemoryAccess(u32),
     UnalignedPc(u32),
     UnaligneMemoryAccess { addr: u32, required_align: u32 },
     Ebreak,
     Exit { code: i32 },
+}
+
+impl From<DecodeError> for Status {
+    fn from(value: DecodeError) -> Self {
+        Status::IllegalInstruction(value)
+    }
 }
 
 pub struct Emulator {
@@ -87,6 +93,7 @@ pub struct Emulator {
     pub is_breaking: bool,
 
     pub debug: bool,
+    pub break_pc: u32,
     pub ecall_handler: Box<dyn FnMut(&mut Memory, &mut [u32; 32]) -> Result<(), Status>>,
 }
 
@@ -219,7 +226,6 @@ impl Emulator {
         // TODO: add some auxv for the poor process.
         self.mem.store_u32(next_word(), 0)?;
 
-
         Ok(())
     }
 
@@ -238,22 +244,30 @@ impl Emulator {
 
     fn step(&mut self) -> Result<(), Status> {
         let code = self.mem.load_u32(self.pc)?;
-        let (inst, was_compressed) = Inst::decode(code)?;
 
-        if self.is_breaking {
-            self.debug_interactive();
+        if self.debug {
+            print!("0x{:x} ", self.pc);
         }
+
+        let (inst, was_compressed) = Inst::decode(code)?;
 
         if self.debug {
             println!(
-                "0x{:x} {} (sp: {}) {inst:?}",
-                self.pc,
+                "{} (sp: {}) {inst:?}",
                 match was_compressed {
                     IsCompressed::Yes => "C",
                     IsCompressed::No => " ",
                 },
                 hash_color(self.xreg[Reg::SP.0 as usize])
             );
+        }
+
+        if self.pc == self.break_pc {
+            self.is_breaking = true;
+        }
+
+        if self.is_breaking {
+            self.debug_interactive();
         }
 
         let next_pc = self.pc.wrapping_add(match was_compressed {
@@ -515,8 +529,8 @@ impl Emulator {
             std::io::stdout().flush().unwrap();
             let mut input = String::new();
             std::io::stdin().read_line(&mut input).unwrap();
-            let input = input.trim();
-            match input {
+            let mut input = input.trim().split_whitespace();
+            match input.next().unwrap_or_default() {
                 "c" => {
                     self.is_breaking = false;
                     return;
@@ -525,7 +539,43 @@ impl Emulator {
                     return;
                 }
                 "q" => std::process::exit(0),
-                "p" => {
+                "m" => {
+                    let Some(size) = input.next() else {
+                        eprintln!("require b/h/w argument for m command");
+                        continue;
+                    };
+                    let Some(addr) = input.next() else {
+                        eprintln!("require address argument for m command");
+                        continue;
+                    };
+                    let Ok(addr) = (if let Some(addr) = addr.strip_prefix("0x") {
+                        u32::from_str_radix(addr, 16)
+                    } else {
+                        u32::from_str_radix(&addr, 10)
+                    }) else {
+                        eprintln!("invalid address");
+                        continue;
+                    };
+                    let value = match size {
+                        "w" => self.mem.load_u32(addr),
+                        "h" => self.mem.load_u16(addr).map(Into::into),
+                        "b" => self.mem.load_u8(addr).map(Into::into),
+                        _ => {
+                            eprintln!("require b/h/w argument for m command");
+                            continue;
+                        }
+                    };
+                    let value = match value {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("failed to load value: {e:?}");
+                            continue;
+                        }
+                    };
+
+                    println!("{value} (0x{value:x})");
+                }
+                "r" => {
                     let format_value = |v: u32| {
                         if v == 0 {
                             format!("{:0>8x}", v.black())
@@ -626,7 +676,8 @@ impl Emulator {
                 _ => println!(
                     "commands:
 - ?: help
-- p: print registers
+- r: print registers
+- m <b|h|w> <addr>: read a byte/half/word of memory at an address
 - c: continue until next breakpoint
 - s: step one instruction
 - q: quit"
