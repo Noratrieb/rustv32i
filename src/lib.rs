@@ -16,7 +16,7 @@ pub fn execute_linux_elf(
     let elf = elf::Elf { content: elf };
     let header = elf.header()?;
 
-    let segments = elf.segments()?;
+    let segments = elf.segments_32()?;
 
     let mut mem = emu::Memory {
         mem: vec![0; MEMORY_SIZE],
@@ -66,7 +66,7 @@ pub fn execute_linux_elf(
         mem,
         xreg: [0; 32],
         xreg0_value: 0,
-        pc: start,
+        pc: start.0 as u32,
         reservation_set: None,
 
         is_breaking: false,
