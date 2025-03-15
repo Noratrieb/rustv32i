@@ -21,28 +21,30 @@
 .endm
 
 START_TEST
-    CASE amoswap.w, 1, 0, 1
-    CASE amoswap.w, 10, -1, 10
-    CASE amoswap.w 0, 0, 0
+    .macro CASE_AMOSWAP a:req b:req
+        CASE amoswap.w, \a, \b, \a
+    .endm
+    WITH_TWO_TEST_NUMBERS CASE_AMOSWAP
 
-    CASE amoadd.w, 1, 1, 2
-    CASE amoadd.w, -1, 1, 0
-    CASE amoadd.w, 10, -2, 8
+    .macro CASE_AMOADD a:req b:req
+        CASE amoadd.w, \a, \b, \a + \b
+    .endm
+    WITH_TWO_TEST_NUMBERS CASE_AMOADD
 
-    CASE amoand.w, 0b11, 0b11, 0b11
-    CASE amoand.w, -1, -1, -1
-    CASE amoand.w, -1, 0, 0
-    CASE amoand.w, -1, 40, 40
-    CASE amoand.w, 0b101, 0b100, 0b100
+    .macro CASE_AMOAND a:req b:req
+        CASE amoand.w, \a, \b, \a & \b
+    .endm
+    WITH_TWO_TEST_NUMBERS CASE_AMOAND
 
-    CASE amoor.w, -1, 0, -1
-    CASE amoor.w, -1, 40, -1
-    CASE amoor.w, 0, 0, 0
-    CASE amoor.w, 0b101, 0b110, 0b111
+    .macro CASE_AMOOR a:req b:req
+        CASE amoor.w, \a, \b, \a | \b
+    .endm
+    WITH_TWO_TEST_NUMBERS CASE_AMOOR
 
-    CASE amoxor.w, -1, 0, -1
-    CASE amoxor.w, -1, -1, 0
-    CASE amoxor.w, 0b101, 0b100, 0b001
+    .macro CASE_AMOXOR a:req b:req
+        CASE amoxor.w, \a, \b, \a ^ \b
+    .endm
+    WITH_TWO_TEST_NUMBERS CASE_AMOXOR
 
     CASE amomax.w, 0, 0, 0
     CASE amomax.w, 0, 1, 1
