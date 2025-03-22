@@ -2,7 +2,6 @@ use eyre::{OptionExt, bail};
 
 pub mod elf;
 pub mod emu;
-pub mod inst;
 
 // 2 MiB
 const MEMORY_SIZE: usize = 2 << 21;

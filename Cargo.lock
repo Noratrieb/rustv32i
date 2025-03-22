@@ -102,8 +102,13 @@ dependencies = [
  "eyre",
  "libc",
  "owo-colors",
+ "rvdc",
  "tempfile",
 ]
+
+[[package]]
+name = "rvdc"
+version = "0.1.0"
 
 [[package]]
 name = "tempfile"

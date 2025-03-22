@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "rvdc"]
+
 [package]
 name = "rustv32i"
 version = "0.1.0"
@@ -7,6 +10,7 @@ edition = "2024"
 eyre = "0.6.12"
 libc = "0.2.170"
 owo-colors = "4.2.0"
+rvdc = { path = "./rvdc" }
 
 [profile.dev]
 opt-level = 1
@@ -16,9 +20,6 @@ debug = 1
 
 [dev-dependencies]
 tempfile = "3.18.0"
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(slow_tests)'] }
 
 [lints.clippy]
 type_complexity = "allow"

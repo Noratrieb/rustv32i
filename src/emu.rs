@@ -1,4 +1,4 @@
-use crate::inst::{AmoOp, DecodeError, Inst, IsCompressed};
+use rvdc::{AmoOp, DecodeError, Inst, IsCompressed, Reg};
 use std::{
     fmt::{Debug, Display},
     io::Write,
@@ -110,46 +110,6 @@ impl<XLEN> IndexMut<Reg> for Emulator<XLEN> {
             &mut self.xreg0_value
         } else {
             &mut self.xreg[index.0 as usize]
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Reg(pub u32);
-
-impl Reg {
-    pub const ZERO: Reg = Reg(0);
-
-    pub const RA: Reg = Reg(1);
-    pub const SP: Reg = Reg(2);
-    // arguments, return values:
-    pub const A0: Reg = Reg(10);
-    pub const A1: Reg = Reg(11);
-    // arguments:
-    pub const A2: Reg = Reg(12);
-    pub const A3: Reg = Reg(13);
-    pub const A4: Reg = Reg(14);
-    pub const A5: Reg = Reg(15);
-    pub const A6: Reg = Reg(16);
-    pub const A7: Reg = Reg(17);
-}
-
-impl Display for Reg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let n = self.0;
-        match n {
-            0 => write!(f, "zero"),
-            1 => write!(f, "ra"),
-            2 => write!(f, "sp"),
-            3 => write!(f, "gp"),
-            4 => write!(f, "tp"),
-            5..=7 => write!(f, "t{}", n - 5),
-            8 => write!(f, "s0"),
-            9 => write!(f, "s1"),
-            10..=17 => write!(f, "a{}", n - 10),
-            18..=27 => write!(f, "s{}", n - 18 + 2),
-            28..=31 => write!(f, "t{}", n - 28 + 3),
-            _ => unreachable!("invalid register"),
         }
     }
 }

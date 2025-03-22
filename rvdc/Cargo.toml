@@ -1,0 +1,10 @@
+[package]
+name = "rvdc"
+version = "0.1.0"
+description = "RISC-V instruction decoder"
+edition = "2024"
+
+[dependencies]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(slow_tests)'] }

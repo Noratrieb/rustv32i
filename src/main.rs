@@ -1,7 +1,8 @@
 use std::io::Write;
 
 use eyre::eyre;
-use rustv32i::emu::{self, Memory, Reg};
+use rustv32i::emu::{self, Memory};
+use rvdc::Reg;
 
 fn main() -> eyre::Result<()> {
     let content = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();

@@ -1,8 +1,59 @@
-use crate::emu::Reg;
+//! RISC-V instruction decoder.
+//!
+//! ```rust
+//! // Compressed addi sp, sp, -0x20
+//! let x = 0x1101_u32;
+//! let expected = rvdc::Inst::Addi { imm: (-0x20_i32) as u32, dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
+//!
+//! let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
+//! assert_eq!(inst, expected);
+//! assert_eq!(is_compressed, rvdc::IsCompressed::No);
+//! ```
+
 use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Reg(pub u32);
+
+impl Reg {
+    pub const ZERO: Reg = Reg(0);
+
+    pub const RA: Reg = Reg(1);
+    pub const SP: Reg = Reg(2);
+    // arguments, return values:
+    pub const A0: Reg = Reg(10);
+    pub const A1: Reg = Reg(11);
+    // arguments:
+    pub const A2: Reg = Reg(12);
+    pub const A3: Reg = Reg(13);
+    pub const A4: Reg = Reg(14);
+    pub const A5: Reg = Reg(15);
+    pub const A6: Reg = Reg(16);
+    pub const A7: Reg = Reg(17);
+}
+
+impl Display for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let n = self.0;
+        match n {
+            0 => write!(f, "zero"),
+            1 => write!(f, "ra"),
+            2 => write!(f, "sp"),
+            3 => write!(f, "gp"),
+            4 => write!(f, "tp"),
+            5..=7 => write!(f, "t{}", n - 5),
+            8 => write!(f, "s0"),
+            9 => write!(f, "s1"),
+            10..=17 => write!(f, "a{}", n - 10),
+            18..=27 => write!(f, "s{}", n - 18 + 2),
+            28..=31 => write!(f, "t{}", n - 28 + 3),
+            _ => unreachable!("invalid register"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustfmt::skip]
 pub enum Inst {
     /// Load Upper Immediate
@@ -135,7 +186,7 @@ pub enum Inst {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Fence {
     pub fm: u32,
     pub pred: FenceSet,
@@ -144,7 +195,7 @@ pub struct Fence {
     pub src: Reg,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FenceSet {
     pub device_input: bool,
     pub device_output: bool,
@@ -152,29 +203,41 @@ pub struct FenceSet {
     pub memory_write: bool,
 }
 
-#[derive(Clone, Copy)]
+/// An atomic memory ordering for instructions from the A extension.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AmoOrdering {
+    /// No bits.
     Relaxed,
+    /// `aq`
     Acquire,
+    /// `rl`
     Release,
+    /// `aq`, `rl`
     SeqCst,
 }
 
-#[derive(Clone, Copy)]
+/// An atomic memory operations from the Zaamo extension.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AmoOp {
     Swap,
     Add,
     Xor,
     And,
     Or,
+    /// Signed minimum
     Min,
+    /// Signed maximum
     Max,
+    /// Unsigned minimum
     Minu,
+    /// Unsigned maximum
     Maxu,
 }
 
 pub struct DecodeError {
+    /// The instruction bytes that failed to decode.
     pub instruction: u32,
+    /// Which field of the instruction contained unexpected bits.
     pub unexpected_field: &'static str,
 }
 
@@ -216,6 +279,7 @@ impl Debug for Inst {
     }
 }
 
+/// Prints the instruction in disassembled form.
 impl Display for Inst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
@@ -425,7 +489,7 @@ fn sign_extend(value: u32, size: u32) -> u32 {
 }
 
 #[derive(Clone, Copy)]
-pub struct InstCode(u32);
+struct InstCode(u32);
 
 impl InstCode {
     fn extract(self, range: RangeInclusive<u32>) -> u32 {
@@ -488,7 +552,7 @@ impl InstCode {
 }
 
 #[derive(Clone, Copy)]
-pub struct InstCodeC(u16);
+struct InstCodeC(u16);
 
 impl InstCodeC {
     fn extract(self, range: RangeInclusive<u32>) -> u32 {
@@ -552,9 +616,13 @@ impl From<InstCodeC> for InstCode {
     }
 }
 
+/// Whether the decoded instruction was a compressed instruction or not.
+/// If it was compressed, only the first two bytes were used.
+/// If it was not compressed, all four bytes are consumed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IsCompressed {
-    Yes,
     No,
+    Yes,
 }
 
 fn decode_error(instruction: impl Into<InstCode>, unexpected_field: &'static str) -> DecodeError {
@@ -565,6 +633,18 @@ fn decode_error(instruction: impl Into<InstCode>, unexpected_field: &'static str
 }
 
 impl Inst {
+    pub fn first_byte_is_compressed(byte: u8) -> bool {
+        (byte & 0b11) != 0b11
+    }
+
+    /// Decode an instruction from four bytes.
+    ///
+    /// The instruction may be compressed, in which case only two bytes are consumed.
+    /// Even in these cases, the full next four bytes must be passed.
+    ///
+    /// If the caller wants to avoid reading more bytes than necessary, [`Self::first_byte_is_compressed`]
+    /// can be used to check, read the required bytes, and then call [`Self::decode_compressed`] or
+    /// [`Self::decode_normal`] directly.
     pub fn decode(code: u32) -> Result<(Inst, IsCompressed), DecodeError> {
         let is_compressed = (code & 0b11) != 0b11;
         if is_compressed {
@@ -574,7 +654,18 @@ impl Inst {
         }
     }
 
-    fn decode_compressed(code: u16) -> Result<Inst, DecodeError> {
+    /// Decode a known compressed instruction from its two bytes.
+    ///
+    /// # Example
+    /// ```rust
+    /// // Compressed addi sp, sp, -0x20
+    /// let x = 0x1101_u16;
+    /// let expected = rvdc::Inst::Addi { imm: (-0x20_i32) as u32, dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
+    ///
+    /// let inst = rvdc::Inst::decode_compressed(x).unwrap();
+    /// assert_eq!(inst, expected);
+    /// ```
+    pub fn decode_compressed(code: u16) -> Result<Inst, DecodeError> {
         let code = InstCodeC(code);
         if code.0 == 0 {
             return Err(decode_error(code, "null instruction"));
@@ -845,7 +936,8 @@ impl Inst {
         Ok(inst)
     }
 
-    fn decode_normal(code: u32) -> Result<Inst, DecodeError> {
+    /// Decode a normal (not compressed) instruction.
+    pub fn decode_normal(code: u32) -> Result<Inst, DecodeError> {
         let code = InstCode(code);
         let inst = match code.opcode() {
             // LUI

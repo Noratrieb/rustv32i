@@ -5,7 +5,8 @@ use std::{
 };
 
 use eyre::{Context, bail};
-use rustv32i::emu::{Reg, Status};
+use rustv32i::emu::Status;
+use rvdc::Reg;
 
 #[test]
 fn check() -> eyre::Result<()> {
