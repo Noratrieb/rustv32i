@@ -5,6 +5,7 @@ members = [".", "rvdc"]
 name = "rustv32i"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 eyre = "0.6.12"

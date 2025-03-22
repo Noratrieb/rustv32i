@@ -1,36 +1,150 @@
 //! RISC-V instruction decoder.
 //!
+//! The main function is [`Inst::decode`], which will decode an instruction into the [`Inst`] enum.
+//! The [`std::fmt::Display`] impl of [`Inst`] provides disassembly functionality
+//! (note that the precise output of that implementation is not considered stable).
+//!
+//! # Register size support
+//!
+//! This crate currenly only supports RV32 instructions.
+//! RV64 instructions that are the same between versions will still be decoded successfully, but the user
+//! has to be careful around sign-extended immediates to preserve the correct value when extending them to 64 bits.
+//!
+//! RV64-specific instructions are not yet implemented, but will be in the future.
+//! The immediates will also be switched to `u64` in the future to allow for easier usage of RV64.
+//!
+//! RV128 is not intended to be supported.
+//!
+//! # Extension support
+//!
+//! The decoder currently supports the following instructions:
+//!
+//! - [x] Base RV32I instruction set
+//! - [x] M standard extension
+//! - [x] A standard extension
+//!     - [x] Zalrsc standard extension
+//!     - [x] Zaamo standard extension
+//! - [x] C standard extension
+//!
+//! More extensions may be implemented in the future.
+//!
+//! # Examples
+//!
 //! ```rust
-//! // Compressed addi sp, sp, -0x20
+//! // addi sp, sp, -0x20 (compressed)
 //! let x = 0x1101_u32;
 //! let expected = rvdc::Inst::Addi { imm: (-0x20_i32) as u32, dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
 //!
 //! let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
 //! assert_eq!(inst, expected);
-//! assert_eq!(is_compressed, rvdc::IsCompressed::No);
+//! assert_eq!(is_compressed, rvdc::IsCompressed::Yes);
+//! assert_eq!(format!("{inst}"), "addi sp, sp, -32")
 //! ```
+//!
+//! ```rust
+//! // auipc t1, 0xa
+//! let x = 0x0000a317;
+//! let expected = rvdc::Inst::Auipc { uimm: 0xa << 12, dest: rvdc::Reg::T1 };
+//!
+//! let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
+//! assert_eq!(inst, expected);
+//! assert_eq!(is_compressed, rvdc::IsCompressed::No);
+//! assert_eq!(format!("{inst}"), "auipc t1, 10")
+//! ```
+//!
+//! # Panics
+//!
+//! [`Inst::decode`] is guaranteed to **never** panic. This is ensured with a 32-bit exhaustive test.
+//!
+//! # Testing
+//!
+//! This crate is currently tested as part of an emulator, which tests many different kinds of instructions.
+//! In the future, more tests of the decoder specifically may be added.
+//!
+//! # MSRV
+//!
+//! This crate targets the latest stable as its MSRV.
+
+#![deny(missing_docs)]
 
 use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 
+/// A decoded RISC-V integer register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Reg(pub u32);
+pub struct Reg(pub u8);
 
 impl Reg {
+    /// The zero register `zero` (`x0`)
     pub const ZERO: Reg = Reg(0);
 
+    /// The return address register `ra` (`x1`)
     pub const RA: Reg = Reg(1);
+    /// The stack pointer register `sp` (`x2`)
     pub const SP: Reg = Reg(2);
-    // arguments, return values:
+    /// The global pointer register `gp` (`x3`)
+    pub const GP: Reg = Reg(3);
+    /// The thread pointer register `tp` (`x4`)
+    pub const TP: Reg = Reg(4);
+
+    /// Saved register `s0` (`x8`)
+    pub const S0: Reg = Reg(8);
+    /// Saved register frame pointer `fp` (`s0`, `x8`)
+    pub const FP: Reg = Reg(8);
+    /// Saved register `s1` (`x9`)
+    pub const S1: Reg = Reg(9);
+    /// Saved register `s2` (`x18`)
+    pub const S2: Reg = Reg(18);
+    /// Saved register `s3` (`x19`)
+    pub const S3: Reg = Reg(19);
+    /// Saved register `s4` (`x20`)
+    pub const S4: Reg = Reg(20);
+    /// Saved register `s5` (`x21`)
+    pub const S5: Reg = Reg(21);
+    /// Saved register `s6` (`x22`)
+    pub const S6: Reg = Reg(22);
+    /// Saved register `s7` (`x23`)
+    pub const S7: Reg = Reg(23);
+    /// Saved register `s8` (`x24`)
+    pub const S8: Reg = Reg(24);
+    /// Saved register `s9` (`x25`)
+    pub const S9: Reg = Reg(25);
+    /// Saved register `s10` (`x26`)
+    pub const S10: Reg = Reg(26);
+    /// Saved register `s11` (`x27`)
+    pub const S11: Reg = Reg(27);
+
+    /// Argument/return value register `a0` (`x10`)
     pub const A0: Reg = Reg(10);
+    /// Argument/return value register `a1` (`x11`)
     pub const A1: Reg = Reg(11);
-    // arguments:
+    /// Argument register `a2` (`x12`)
     pub const A2: Reg = Reg(12);
+    /// Argument register `a3` (`x13`)
     pub const A3: Reg = Reg(13);
+    /// Argument register `a4` (`x14`)
     pub const A4: Reg = Reg(14);
+    /// Argument register `a5` (`x15`)
     pub const A5: Reg = Reg(15);
+    /// Argument register `a6` (`x16`)
     pub const A6: Reg = Reg(16);
+    /// Argument register `a7` (`x17`)
     pub const A7: Reg = Reg(17);
+
+    /// Temporary register `t0` (`x5`)
+    pub const T0: Reg = Reg(5);
+    /// Temporary register `t1` (`x6`)
+    pub const T1: Reg = Reg(6);
+    /// Temporary register `t2` (`x7`)
+    pub const T2: Reg = Reg(7);
+    /// Temporary register `t3` (`x28`)
+    pub const T3: Reg = Reg(28);
+    /// Temporary register `t4` (`x29`)
+    pub const T4: Reg = Reg(29);
+    /// Temporary register `t5` (`x30`)
+    pub const T5: Reg = Reg(30);
+    /// Temporary register `t6` (`x31`)
+    pub const T6: Reg = Reg(31);
 }
 
 impl Display for Reg {
@@ -53,8 +167,16 @@ impl Display for Reg {
     }
 }
 
+/// A RISC-V instruction.
+/// 
+/// Every variant is a different instruction, with immediates as `u32`.
+/// For instructions that sign-extend immediates, the immediates will have been
+/// sign-extended already, so the value can be used as-is.
+/// For instructions that have immediates in the upper bits (`lui`, `auipc`),
+/// the shift will have been done already, so the value can also be used as-is.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustfmt::skip]
+#[expect(missing_docs)] // enum variant fields
 pub enum Inst {
     /// Load Upper Immediate
     Lui { uimm: u32, dest: Reg },
@@ -186,16 +308,26 @@ pub enum Inst {
     },
 }
 
+/// The details of a RISC-V `fence` instruction.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Fence {
-    pub fm: u32,
+    /// The `fm` field of the instruction.
+    /// - `0b0000` is a normal fence
+    /// - `0b1000` with `rw,rw` implies a `fence.tso`
+    pub fm: u8,
+    /// The predecessor set.
     pub pred: FenceSet,
+    /// The sucessor set.
     pub succ: FenceSet,
+    /// The `rd` field of the instruction. Currently always zero.
     pub dest: Reg,
+    /// The `rs1` field of the instruction. Currently always zero.
     pub src: Reg,
 }
 
+/// The affected parts of a fence.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(missing_docs)]
 pub struct FenceSet {
     pub device_input: bool,
     pub device_output: bool,
@@ -219,10 +351,15 @@ pub enum AmoOrdering {
 /// An atomic memory operations from the Zaamo extension.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AmoOp {
+    /// Swap
     Swap,
+    /// ADD
     Add,
+    /// XOR
     Xor,
+    /// AND
     And,
+    /// OR
     Or,
     /// Signed minimum
     Min,
@@ -234,6 +371,9 @@ pub enum AmoOp {
     Maxu,
 }
 
+/// The error used for invalid instructions containing information about the instruction and error.
+///
+/// Note that this is also returned for the defined illegal instruction of all zero.
 pub struct DecodeError {
     /// The instruction bytes that failed to decode.
     pub instruction: u32,
@@ -242,6 +382,7 @@ pub struct DecodeError {
 }
 
 impl Fence {
+    /// Whether this fence indicates a `pause` assembler pseudoinstruction.
     pub fn is_pause(&self) -> bool {
         self.pred
             == FenceSet {
@@ -263,6 +404,7 @@ impl Fence {
 }
 
 impl AmoOrdering {
+    /// Create a new [`AmoOrdering`] from the two ordering bits.
     pub fn from_aq_rl(aq: bool, rl: bool) -> Self {
         match (aq, rl) {
             (false, false) => Self::Relaxed,
@@ -280,6 +422,8 @@ impl Debug for Inst {
 }
 
 /// Prints the instruction in disassembled form.
+///
+/// Note that the precise output here is not considered stable.
 impl Display for Inst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
@@ -526,13 +670,16 @@ impl InstCode {
         self.extract(25..=31)
     }
     fn rs1(self) -> Reg {
-        Reg(self.extract(15..=19))
+        Reg(self.extract(15..=19) as u8)
     }
     fn rs2(self) -> Reg {
-        Reg(self.extract(20..=24))
+        Reg(self.extract(20..=24) as u8)
+    }
+    fn rs2_imm(self) -> u32 {
+        self.extract(20..=24)
     }
     fn rd(self) -> Reg {
-        Reg(self.extract(7..=11))
+        Reg(self.extract(7..=11) as u8)
     }
     fn imm_i(self) -> u32 {
         self.immediate_s(&[(20..=31, 0)])
@@ -590,23 +737,23 @@ impl InstCodeC {
     }
     /// rd/rs1 (7..=11)
     fn rd(self) -> Reg {
-        Reg(self.extract(7..=11))
+        Reg(self.extract(7..=11) as u8)
     }
     /// rs2 (2..=6)
     fn rs2(self) -> Reg {
-        Reg(self.extract(2..=6))
+        Reg(self.extract(2..=6) as u8)
     }
     /// rs1' (7..=9)
     fn rs1_short(self) -> Reg {
         let smol_reg = self.extract(7..=9);
         // map to x8..=x15
-        Reg(smol_reg + 8)
+        Reg((smol_reg + 8) as u8)
     }
     /// rs2' (2..=4)
     fn rs2_short(self) -> Reg {
         let smol_reg = self.extract(2..=4);
         // map to x8..=x15
-        Reg(smol_reg + 8)
+        Reg((smol_reg + 8) as u8)
     }
 }
 
@@ -621,7 +768,9 @@ impl From<InstCodeC> for InstCode {
 /// If it was not compressed, all four bytes are consumed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IsCompressed {
+    /// Normal 4-byte instruction
     No,
+    /// Compressed 2-byte instruction
     Yes,
 }
 
@@ -633,6 +782,7 @@ fn decode_error(instruction: impl Into<InstCode>, unexpected_field: &'static str
 }
 
 impl Inst {
+    /// Whether the first byte of an instruction indicates a compressed or uncompressed instruction.
     pub fn first_byte_is_compressed(byte: u8) -> bool {
         (byte & 0b11) != 0b11
     }
@@ -1085,12 +1235,12 @@ impl Inst {
                 },
                 0b101 => match code.funct7() {
                     0b0000000 => Inst::Srli {
-                        imm: code.rs2().0,
+                        imm: code.rs2_imm(),
                         dest: code.rd(),
                         src1: code.rs1(),
                     },
                     0b0100000 => Inst::Srai {
-                        imm: code.rs2().0,
+                        imm: code.rs2_imm(),
                         dest: code.rd(),
                         src1: code.rs1(),
                     },
@@ -1143,7 +1293,7 @@ impl Inst {
                 match code.funct3() {
                     0b000 => Inst::Fence {
                         fence: Fence {
-                            fm,
+                            fm: fm as u8,
                             pred,
                             succ,
                             dest: code.rd(),
@@ -1239,6 +1389,8 @@ impl Inst {
 mod tests {
     use std::io::Write;
 
+    use crate::Inst;
+
     #[test]
     #[cfg_attr(not(slow_tests), ignore)]
     fn exhaustive_decode_no_panic() {
@@ -1252,5 +1404,10 @@ mod tests {
             let _ = super::Inst::decode(i);
         }
         let _ = super::Inst::decode(u32::MAX);
+    }
+
+    #[test]
+    fn size_of_instruction() {
+        assert!(size_of::<Inst>() <= 12);
     }
 }
