@@ -5,7 +5,7 @@ description = "RISC-V instruction decoder"
 repository = "https://github.com/Noratrieb/rustv32i"
 edition = "2024"
 keywords = ["risc-v", "riscv", "decoder", "instruction", "parser"]
-categories = ["Parser implementations"]
+categories = ["parser-implementations"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
