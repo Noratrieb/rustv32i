@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
-
+#![no_std]
 #![deny(missing_docs)]
 
-use std::fmt::{Debug, Display};
-use std::ops::RangeInclusive;
+use core::fmt::{self, Debug, Display};
+use core::ops::RangeInclusive;
 
 /// A decoded RISC-V integer register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,7 +83,7 @@ impl Reg {
 }
 
 impl Display for Reg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let n = self.0;
         match n {
             0 => write!(f, "zero"),
@@ -351,7 +351,7 @@ impl AmoOrdering {
 }
 
 impl Debug for Inst {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self, f)
     }
 }
@@ -360,7 +360,7 @@ impl Debug for Inst {
 ///
 /// Note that the precise output here is not considered stable.
 impl Display for Inst {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Inst::Lui { uimm, dest } => write!(f, "lui {dest}, {}", uimm >> 12),
             Inst::Auipc { uimm, dest } => write!(f, "auipc {dest}, {}", uimm >> 12),
@@ -497,7 +497,7 @@ impl Display for Inst {
 }
 
 impl Display for FenceSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.device_input {
             write!(f, "i")?;
         }
@@ -515,7 +515,7 @@ impl Display for FenceSet {
 }
 
 impl Display for AmoOrdering {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AmoOrdering::Relaxed => write!(f, ""),
             AmoOrdering::Acquire => write!(f, ".aq"),
@@ -526,7 +526,7 @@ impl Display for AmoOrdering {
 }
 
 impl Display for AmoOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AmoOp::Swap => write!(f, "swap"),
             AmoOp::Add => write!(f, "add"),
@@ -542,16 +542,16 @@ impl Display for AmoOp {
 }
 
 impl Debug for DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DecodeError")
-            .field("instruction", &format!("{:0>32b}", self.instruction))
+            .field("instruction", &format_args!("{:0>32b}", self.instruction))
             .field("unexpected_field", &self.unexpected_field)
             .finish()
     }
 }
 
 impl Display for DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "failed to decode instruction '{:0>32b}' because of field '{}'",
@@ -560,7 +560,7 @@ impl Display for DecodeError {
     }
 }
 
-impl std::error::Error for DecodeError {}
+impl core::error::Error for DecodeError {}
 
 fn sign_extend(value: u32, size: u32) -> u32 {
     let right = u32::BITS - size;
@@ -1322,6 +1322,7 @@ impl Inst {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
     use std::io::Write;
 
     use crate::Inst;
@@ -1333,7 +1334,7 @@ mod tests {
             if (i % (2 << 25)) == 0 {
                 let percent = i as f32 / (u32::MAX as f32);
                 let done = (100.0 * percent) as usize;
-                print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
+                std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
                 std::io::stdout().flush().unwrap();
             }
             let _ = super::Inst::decode(i);

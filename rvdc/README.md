@@ -52,6 +52,10 @@ assert_eq!(is_compressed, rvdc::IsCompressed::No);
 assert_eq!(format!("{inst}"), "auipc t1, 10")
 ```
 
+# `no_std`
+
+This crate supports `no_std` without the `alloc` crate.
+
 # Panics
 
 [`Inst::decode`] is guaranteed to **never** panic. This is ensured with a 32-bit exhaustive test.
