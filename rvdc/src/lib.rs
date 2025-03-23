@@ -1459,7 +1459,7 @@ mod tests {
 
             let start_time = std::time::Instant::now();
 
-            let insts = (start..=(start + CHUNK_SIZE))
+            let insts = (start..=start.saturating_add(CHUNK_SIZE))
                 .filter_map(|code| Some((code, Inst::decode_normal(code).ok()?)))
                 .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
                 .collect::<Vec<_>>();
