@@ -64,6 +64,7 @@ This crate supports `no_std` without the `alloc` crate.
 # Testing
 
 This crate is tested by exhaustively going through all 32 bit values that are valid instructions and roundtripping the disassembly through the clang assembler, ensuring it remains the same.
+This is not yet done for compressed instructions.
 
 Additionally, it's also tested as part of an emulator, which tests many different kinds of instructions.
 

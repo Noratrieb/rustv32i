@@ -747,6 +747,22 @@ fn decode_error(instruction: impl Into<InstCode>, unexpected_field: &'static str
 
 impl Inst {
     /// Whether the first byte of an instruction indicates a compressed or uncompressed instruction.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // addi sp, sp, -0x20 (compressed)
+    /// let x = 0x1101_u32;
+    /// assert!(rvdc::Inst::first_byte_is_compressed(x.to_le_bytes()[0]));
+    /// let x = 0x1101_u16;
+    /// assert!(rvdc::Inst::first_byte_is_compressed(x.to_le_bytes()[0]));
+    /// ```
+    ///
+    /// ```rust
+    /// // auipc t1, 0xa
+    /// let x = 0x0000a317_u32;
+    /// assert!(!rvdc::Inst::first_byte_is_compressed(x.to_le_bytes()[0]));
+    /// ```
     pub fn first_byte_is_compressed(byte: u8) -> bool {
         (byte & 0b11) != 0b11
     }
@@ -788,11 +804,18 @@ impl Inst {
             // C0
             0b00 => match code.funct3() {
                 // C.ADDI4SPN -> addi \rd', sp, \imm
-                0b000 => Inst::Addi {
-                    imm: code.immediate_u(&[(5..=5, 3), (6..=6, 2), (7..=10, 6), (11..=12, 4)]),
-                    dest: code.rs2_short(),
-                    src1: Reg::SP,
-                },
+                0b000 => {
+                    let imm =
+                        code.immediate_u(&[(5..=5, 3), (6..=6, 2), (7..=10, 6), (11..=12, 4)]);
+                    if imm == 0 {
+                        return Err(decode_error(code, "uimm=0 for C.ADDISPN is reserved"));
+                    }
+                    Inst::Addi {
+                        imm,
+                        dest: code.rs2_short(),
+                        src1: Reg::SP,
+                    }
+                }
                 // C.LW -> lw \dest \offset(\base)
                 0b010 => Inst::Lw {
                     offset: code.immediate_u(&[(10..=12, 3), (5..=5, 6), (6..=6, 2)]),
@@ -977,7 +1000,7 @@ impl Inst {
                 // C.SLLI -> slli \rd, \rd, \imm
                 0b000 => {
                     if code.extract(12..=12) != 0 {
-                        return Err(decode_error(code, "imm"));
+                        return Err(decode_error(code, "C.SLLI shift amount must be zero"));
                     }
                     Inst::Slli {
                         imm: code.immediate_u(&[(2..=6, 0), (12..=12, 5)]),
@@ -1045,7 +1068,7 @@ impl Inst {
                 },
                 _ => return Err(decode_error(code, "funct3")),
             },
-            _ => return Err(decode_error(code, "op")),
+            _ => return Err(decode_error(code, "instruction is not compressed")),
         };
         Ok(inst)
     }
@@ -1437,6 +1460,41 @@ mod tests {
         }
     }
 
+    fn is_compressed_inst_supposed_to_roundtrip(inst: &Inst) -> bool {
+        match inst {
+            // HINT
+            Inst::Addi {
+                dest: Reg::ZERO, ..
+            } => false,
+            // This does roundtrip, but only through C.MV, not C.ADDI
+            Inst::Addi { imm: 0, .. } => false,
+            // This does rountrip, but not through C.ADDI
+            Inst::Addi {
+                dest: Reg::SP,
+                src1: Reg::SP,
+                ..
+            } => false,
+            // HINT
+            Inst::Slli {
+                dest: Reg::ZERO, ..
+            }
+            | Inst::Slli { imm: 0, .. }
+            | Inst::Srli {
+                dest: Reg::ZERO, ..
+            }
+            | Inst::Srli { imm: 0, .. }
+            | Inst::Srai {
+                dest: Reg::ZERO, ..
+            }
+            | Inst::Srai { imm: 0, .. } => false,
+            // HINT
+            Inst::Lui {
+                dest: Reg::ZERO, ..
+            } => false,
+            _ => true,
+        }
+    }
+
     // turn this up for debugging, only run the test directly in these cases
     const SKIP_CHUNKS: u32 = 0;
 
@@ -1497,10 +1555,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "clang doesn't always generate compressed instructions?"]
+    #[ignore = "this doesn't quite work yet because there is often a non-canonical encoding"]
     fn compressed_clang_roundtrip() {
         let insts = (0..=u16::MAX)
             .filter_map(|code| Some((code, Inst::decode_compressed(code).ok()?)))
+            .filter(|(_, inst)| is_compressed_inst_supposed_to_roundtrip(inst))
             .collect::<Vec<_>>();
 
         let mut text = std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
@@ -1511,13 +1570,22 @@ mod tests {
         let data = clang_assemble(&text, "-march=rv32imac");
 
         for (i, result_code) in data.chunks(2).enumerate() {
+            assert!(
+                Inst::first_byte_is_compressed(result_code[0]),
+                "failed to roundtrip {i}th instruction!\n\
+                instruction `{:0>16b}` resulted in an uncompressed instruction from clang\n\
+                disassembly of original instruction: `{}`",
+                insts[i].0,
+                insts[i].1
+            );
+
             let result_code = u16::from_le_bytes(result_code.try_into().unwrap());
 
             assert_eq!(
                 insts[i].0, result_code,
-                "failed to rountrip!\n\
-                 instruction `{:0>32b}` failed to rountrip\n\
-                 resulted in `{:0>32b}` instead.\n\
+                "failed to rountrip {i}th instruction!\n\
+                 instruction `{:0>16b}` failed to rountrip\n\
+                 resulted in `{:0>16b}` instead.\n\
                  disassembly of original instruction: `{}`",
                 insts[i].0, result_code, insts[i].1
             );
