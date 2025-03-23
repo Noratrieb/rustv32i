@@ -1,6 +1,6 @@
 [package]
 name = "rvdc"
-version = "0.1.0"
+version = "0.1.1"
 description = "RISC-V instruction decoder"
 repository = "https://github.com/Noratrieb/rustv32i"
 edition = "2024"
@@ -12,3 +12,7 @@ license = "MIT OR Apache-2.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(slow_tests)'] }
+
+[dev-dependencies]
+object = "0.36.7"
+tempfile = "3.19.1"

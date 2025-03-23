@@ -1,7 +1,7 @@
 RISC-V instruction decoder.
 
 The main function is [`Inst::decode`], which will decode an instruction into the [`Inst`] enum.
-The [`std::fmt::Display`] impl of [`Inst`] provides disassembly functionality
+The [`core::fmt::Display`] impl of [`Inst`] provides disassembly functionality
 (note that the precise output of that implementation is not considered stable).
 
 # Register size support
@@ -25,6 +25,7 @@ The decoder currently supports the following instructions:
   - [x] Zalrsc standard extension
   - [x] Zaamo standard extension
 - [x] C standard extension
+- [x] Zihintpause standard extension
 
 More extensions may be implemented in the future.
 
@@ -62,8 +63,9 @@ This crate supports `no_std` without the `alloc` crate.
 
 # Testing
 
-This crate is currently tested as part of an emulator, which tests many different kinds of instructions.
-In the future, more tests of the decoder specifically may be added.
+This crate is tested by exhaustively going through all 32 bit values that are valid instructions and roundtripping the disassembly through the clang assembler, ensuring it remains the same.
+
+Additionally, it's also tested as part of an emulator, which tests many different kinds of instructions.
 
 # MSRV
 

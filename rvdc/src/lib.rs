@@ -317,6 +317,29 @@ pub struct DecodeError {
 }
 
 impl Fence {
+    /// Whether this is a `fence.tso`.
+    /// `fm=0b1000` and `RW,RW`
+    pub fn is_tso(&self) -> bool {
+        matches!(
+            self,
+            Self {
+                fm: 0b1000,
+                pred: FenceSet {
+                    device_input: _,
+                    device_output: _,
+                    memory_read: true,
+                    memory_write: true
+                },
+                succ: FenceSet {
+                    device_input: _,
+                    device_output: _,
+                    memory_read: true,
+                    memory_write: true
+                },
+                ..
+            }
+        )
+    }
     /// Whether this fence indicates a `pause` assembler pseudoinstruction.
     pub fn is_pause(&self) -> bool {
         self.pred
@@ -397,10 +420,12 @@ impl Display for Inst {
             Inst::Sh { offset, src, base } => write!(f, "sh {src}, {}({base})", offset as i32),
             Inst::Sw { offset, src, base } => write!(f, "sw {src}, {}({base})", offset as i32),
             Inst::Addi { imm, dest, src1 } => {
-                if dest.0 == 0 && src1.0 == 0 {
+                if dest.0 == 0 && src1.0 == 0 && imm == 0 {
                     write!(f, "nop")
                 } else if src1.0 == 0 {
                     write!(f, "li {dest}, {}", imm as i32)
+                } else if imm == 0 {
+                    write!(f, "mv {dest}, {src1}")
                 } else {
                     write!(f, "addi {dest}, {src1}, {}", imm as i32)
                 }
@@ -446,11 +471,7 @@ impl Display for Inst {
                 src1: rs1,
             } => write!(f, "srai {dest}, {rs1}, {}", imm as i32),
             Inst::Add { dest, src1, src2 } => {
-                if src1.0 == 0 {
-                    write!(f, "mv {dest}, {src2}")
-                } else {
-                    write!(f, "add {dest}, {src1}, {src2}")
-                }
+                write!(f, "add {dest}, {src1}, {src2}")
             }
             Inst::Sub { dest, src1, src2 } => write!(f, "sub {dest}, {src1}, {src2}"),
             Inst::Sll { dest, src1, src2 } => write!(f, "sll {dest}, {src1}, {src2}"),
@@ -462,7 +483,7 @@ impl Display for Inst {
             Inst::Or { dest, src1, src2 } => write!(f, "or {dest}, {src1}, {src2}"),
             Inst::And { dest, src1, src2 } => write!(f, "and {dest}, {src1}, {src2}"),
             Inst::Fence { fence } => match fence.fm {
-                0b1000 => write!(f, "fence.TSO"),
+                _ if fence.is_tso() => write!(f, "fence.tso"),
                 0b0000 if fence.is_pause() => {
                     write!(f, "pause")
                 }
@@ -491,24 +512,32 @@ impl Display for Inst {
                 dest,
                 addr,
                 src,
-            } => write!(f, "am{op}.w{order} {dest}, {src}, ({addr})",),
+            } => write!(f, "amo{op}.w{order} {dest}, {src}, ({addr})",),
         }
     }
 }
 
 impl Display for FenceSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut has = false;
         if self.device_input {
+            has = true;
             write!(f, "i")?;
         }
         if self.device_output {
+            has = true;
             write!(f, "o")?;
         }
         if self.memory_read {
+            has = true;
             write!(f, "r")?;
         }
         if self.memory_write {
+            has = true;
             write!(f, "w")?;
+        }
+        if !has {
+            write!(f, "0")?;
         }
         Ok(())
     }
@@ -1163,11 +1192,16 @@ impl Inst {
                     dest: code.rd(),
                     src1: code.rs1(),
                 },
-                0b001 => Inst::Slli {
-                    imm: code.imm_i(),
-                    dest: code.rd(),
-                    src1: code.rs1(),
-                },
+                0b001 => {
+                    if code.funct7() != 0 {
+                        return Err(decode_error(code, "slli shift overflow"));
+                    }
+                    Inst::Slli {
+                        imm: code.imm_i(),
+                        dest: code.rd(),
+                        src1: code.rs1(),
+                    }
+                }
                 0b101 => match code.funct7() {
                     0b0000000 => Inst::Srli {
                         imm: code.rs2_imm(),
@@ -1323,12 +1357,21 @@ impl Inst {
 #[cfg(test)]
 mod tests {
     extern crate std;
-    use std::io::Write;
+    use std::prelude::rust_2024::*;
 
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+
+    use object::Object;
+    use object::ObjectSection;
+
+    use crate::Fence;
+    use crate::FenceSet;
     use crate::Inst;
+    use crate::Reg;
 
     #[test]
-    #[cfg_attr(not(slow_tests), ignore)]
+    #[cfg_attr(not(slow_tests), ignore = "cfg(slow_tests) not enabled")]
     fn exhaustive_decode_no_panic() {
         for i in 0..u32::MAX {
             if (i % (2 << 25)) == 0 {
@@ -1337,13 +1380,174 @@ mod tests {
                 std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
                 std::io::stdout().flush().unwrap();
             }
-            let _ = super::Inst::decode(i);
+            let _ = Inst::decode(i);
         }
-        let _ = super::Inst::decode(u32::MAX);
+        let _ = Inst::decode(u32::MAX);
     }
 
     #[test]
     fn size_of_instruction() {
         assert!(size_of::<Inst>() <= 12);
+    }
+
+    const TEST_SECTION_NAME: &str = ".text.rvdctest";
+
+    /// Some instruction fields are reserved and not printed in the assembly,
+    /// but should be ignored instead of rejected by the decoder.
+    /// We filter out non-canonical forms of these instructions as they do not roundtrip.
+    fn is_inst_supposed_to_roundtrip(inst: &Inst) -> bool {
+        match inst {
+            // Canonical fence.tso
+            Inst::Fence {
+                fence:
+                    Fence {
+                        fm: 0b1000,
+                        pred:
+                            FenceSet {
+                                device_input: false,
+                                device_output: false,
+                                memory_read: true,
+                                memory_write: true,
+                            },
+                        succ:
+                            FenceSet {
+                                device_input: false,
+                                device_output: false,
+                                memory_read: true,
+                                memory_write: true,
+                            },
+                        src: Reg::ZERO,
+                        dest: Reg::ZERO,
+                    },
+            } => true,
+            // Only canonical normal fence with x0 and x0
+            Inst::Fence {
+                fence:
+                    Fence {
+                        fm: 0b0000,
+                        pred: _,
+                        succ: _,
+                        src: Reg::ZERO,
+                        dest: Reg::ZERO,
+                    },
+            } => true,
+            // All other fences are reserved
+            Inst::Fence { .. } => false,
+            _ => true,
+        }
+    }
+
+    // turn this up for debugging, only run the test directly in these cases
+    const SKIP_CHUNKS: u32 = 0;
+
+    #[test]
+    fn ensure_no_chunks_are_skipped() {
+        assert_eq!(SKIP_CHUNKS, 0);
+    }
+
+    #[test]
+    #[cfg_attr(not(slow_tests), ignore = "cfg(slow_tests) not enabled")]
+    fn normal_clang_roundtrip() {
+        const CHUNKS: u32 = 128;
+        const CHUNK_SIZE: u32 = u32::MAX / CHUNKS;
+
+        for (chunk_idx, start) in ((SKIP_CHUNKS * CHUNK_SIZE)..u32::MAX)
+            .step_by(CHUNK_SIZE as usize)
+            .enumerate()
+        {
+            let chunk_idx = chunk_idx + SKIP_CHUNKS as usize;
+
+            let start_time = std::time::Instant::now();
+
+            let insts = (start..=(start + CHUNK_SIZE))
+                .filter_map(|code| Some((code, Inst::decode_normal(code).ok()?)))
+                .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
+                .collect::<Vec<_>>();
+
+            let mut text = std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
+            for (_, inst) in &insts {
+                writeln!(text, "  {inst}").unwrap();
+            }
+
+            let data = clang_assemble(&text, "-march=rv32ima_zihintpause");
+
+            for (i, result_code) in data.chunks(4).enumerate() {
+                let result_code = u32::from_le_bytes(result_code.try_into().unwrap());
+
+                assert_eq!(
+                    insts[i].0, result_code,
+                    "failed to rountrip!\n\
+                 instruction `{:0>32b}` failed to rountrip\n\
+                 resulted in `{:0>32b}` instead.\n\
+                 disassembly of original instruction: `{}`",
+                    insts[i].0, result_code, insts[i].1
+                );
+            }
+
+            let elapsed = start_time.elapsed();
+            let chunk_number = chunk_idx + 1;
+            let remaining = elapsed * (CHUNKS - (chunk_number as u32));
+
+            writeln!(
+                std::io::stdout(),
+                "Completed chunk {chunk_number}/{CHUNKS} (estimated {remaining:?} remaining)",
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "clang doesn't always generate compressed instructions?"]
+    fn compressed_clang_roundtrip() {
+        let insts = (0..=u16::MAX)
+            .filter_map(|code| Some((code, Inst::decode_compressed(code).ok()?)))
+            .collect::<Vec<_>>();
+
+        let mut text = std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
+        for (_, inst) in &insts {
+            writeln!(text, "  {inst}").unwrap();
+        }
+
+        let data = clang_assemble(&text, "-march=rv32imac");
+
+        for (i, result_code) in data.chunks(2).enumerate() {
+            let result_code = u16::from_le_bytes(result_code.try_into().unwrap());
+
+            assert_eq!(
+                insts[i].0, result_code,
+                "failed to rountrip!\n\
+                 instruction `{:0>32b}` failed to rountrip\n\
+                 resulted in `{:0>32b}` instead.\n\
+                 disassembly of original instruction: `{}`",
+                insts[i].0, result_code, insts[i].1
+            );
+        }
+    }
+
+    fn clang_assemble(text: &str, march_flag: &str) -> Vec<u8> {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let path = tmp.path().join("16.s");
+        let bin_path = tmp.path().join("16.o");
+        std::fs::write(&path, text).unwrap();
+
+        let mut clang = std::process::Command::new("clang");
+        clang.args(["-target", "riscv32-unknown-none-elf", march_flag, "-c"]);
+        clang.arg(path);
+        clang.arg("-o");
+        clang.arg(&bin_path);
+        let out = clang.output().unwrap();
+        if !out.status.success() {
+            panic!(
+                "failed to run clang:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+
+        let obj = std::fs::read(bin_path).unwrap();
+        let obj = object::File::parse(&*obj).unwrap();
+        let section = obj.section_by_name(TEST_SECTION_NAME).unwrap();
+        let data = section.data().unwrap();
+        data.to_owned()
     }
 }
