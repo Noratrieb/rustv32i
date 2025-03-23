@@ -1544,7 +1544,7 @@ mod tests {
 
             let elapsed = start_time.elapsed();
             let chunk_number = chunk_idx + 1;
-            let remaining = elapsed * (CHUNKS - (chunk_number as u32));
+            let remaining = elapsed * (CHUNKS.saturating_sub(chunk_number as u32));
 
             writeln!(
                 std::io::stdout(),
