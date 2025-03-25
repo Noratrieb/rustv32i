@@ -1,4 +1,4 @@
-use rvdc::{AmoOp, DecodeError, Inst, IsCompressed, Reg};
+use rvdc::{AmoOp, DecodeError, Imm, Inst, IsCompressed, Reg};
 use std::{
     fmt::{Debug, Display},
     io::Write,
@@ -66,6 +66,7 @@ impl Memory {
 #[derive(Debug)]
 pub enum Status {
     Trap(&'static str),
+    UnsupportedInst(rvdc::Inst),
     IllegalInstruction(DecodeError),
     InvalidMemoryAccess(usize),
     UnalignedPc(u32),
@@ -237,17 +238,17 @@ impl<XLEN: XLen> Emulator<XLEN> {
         let mut jumped = false;
 
         match inst {
-            Inst::Lui { uimm, dest } => self[dest] = XLEN::from_32_z(uimm),
-            Inst::Auipc { uimm, dest } => self[dest] = self.pc.add(XLEN::from_32_z(uimm)),
+            Inst::Lui { uimm, dest } => self[dest] = XLEN::from_imm(uimm),
+            Inst::Auipc { uimm, dest } => self[dest] = self.pc.add(XLEN::from_imm(uimm)),
             Inst::Jal { offset, dest } => {
-                let target = self.pc.add(XLEN::from_32_s(offset));
+                let target = self.pc.add(XLEN::from_imm(offset));
                 self[dest] = next_pc;
                 self.set_pc(target)?;
                 jumped = true;
             }
             Inst::Jalr { offset, base, dest } => {
                 let target = self[base]
-                    .add(XLEN::from_32_s(offset))
+                    .add(XLEN::from_imm(offset))
                     .and(XLEN::from_32_s(!1));
                 self[dest] = next_pc;
                 self.set_pc(target)?;
@@ -256,7 +257,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Beq { offset, src1, src2 } => {
                 let take = self[src1] == self[src2];
                 if take {
-                    let target = self.pc.add(XLEN::from_32_s(offset));
+                    let target = self.pc.add(XLEN::from_imm(offset));
                     self.set_pc(target)?;
                     jumped = true;
                 }
@@ -264,7 +265,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Bne { offset, src1, src2 } => {
                 let take = self[src1] != self[src2];
                 if take {
-                    let target = self.pc.add(XLEN::from_32_s(offset));
+                    let target = self.pc.add(XLEN::from_imm(offset));
                     self.set_pc(target)?;
                     jumped = true;
                 }
@@ -272,7 +273,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Blt { offset, src1, src2 } => {
                 let take = self[src1].signed_lt(self[src2]);
                 if take {
-                    let target = self.pc.add(XLEN::from_32_s(offset));
+                    let target = self.pc.add(XLEN::from_imm(offset));
                     self.set_pc(target)?;
                     jumped = true;
                 }
@@ -280,7 +281,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Bge { offset, src1, src2 } => {
                 let take = self[src1].signed_ge(self[src2]);
                 if take {
-                    let target = self.pc.add(XLEN::from_32_s(offset));
+                    let target = self.pc.add(XLEN::from_imm(offset));
                     self.set_pc(target)?;
                     jumped = true;
                 }
@@ -288,7 +289,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Bltu { offset, src1, src2 } => {
                 let take = self[src1].unsigned_lt(self[src2]);
                 if take {
-                    let target = self.pc.add(XLEN::from_32_s(offset));
+                    let target = self.pc.add(XLEN::from_imm(offset));
                     self.set_pc(target)?;
                     jumped = true;
                 }
@@ -296,66 +297,66 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Bgeu { offset, src1, src2 } => {
                 let take = self[src1].unsigned_ge(self[src2]);
                 if take {
-                    let target = self.pc.add(XLEN::from_32_s(offset));
+                    let target = self.pc.add(XLEN::from_imm(offset));
                     self.set_pc(target)?;
                     jumped = true;
                 }
             }
             Inst::Lb { offset, dest, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self[dest] = XLEN::from_8_s(self.mem.load_u8(addr)?);
             }
             Inst::Lbu { offset, dest, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self[dest] = XLEN::from_8_z(self.mem.load_u8(addr)?);
             }
             Inst::Lh { offset, dest, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self[dest] = XLEN::from_16_s(self.mem.load_u16(addr)?);
             }
             Inst::Lhu { offset, dest, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self[dest] = XLEN::from_16_z(self.mem.load_u16(addr)?);
             }
             Inst::Lw { offset, dest, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self[dest] = XLEN::from_32_s(self.mem.load_u32(addr)?);
             }
             Inst::Sb { offset, src, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self.mem.store_u8(addr, self[src].truncate8())?;
             }
             Inst::Sh { offset, src, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self.mem.store_u16(addr, self[src].truncate16())?;
             }
             Inst::Sw { offset, src, base } => {
-                let addr = self[base].add(XLEN::from_32_s(offset));
+                let addr = self[base].add(XLEN::from_imm(offset));
                 self.mem.store_u32(addr, self[src].truncate32())?;
             }
             Inst::Addi { imm, dest, src1 } => {
-                self[dest] = self[src1].add(XLEN::from_32_s(imm));
+                self[dest] = self[src1].add(XLEN::from_imm(imm));
             }
             Inst::Slti { imm, dest, src1 } => {
-                let result = self[src1].signed_lt(XLEN::from_32_s(imm));
+                let result = self[src1].signed_lt(XLEN::from_imm(imm));
                 self[dest] = XLEN::from_bool(result);
             }
             Inst::Sltiu { imm, dest, src1 } => {
-                let result = self[src1].unsigned_lt(XLEN::from_32_s(imm));
+                let result = self[src1].unsigned_lt(XLEN::from_imm(imm));
                 self[dest] = XLEN::from_bool(result);
             }
             Inst::Andi { imm, dest, src1 } => {
-                self[dest] = self[src1].and(XLEN::from_32_s(imm));
+                self[dest] = self[src1].and(XLEN::from_imm(imm));
             }
             Inst::Ori { imm, dest, src1 } => {
-                self[dest] = self[src1].or(XLEN::from_32_s(imm));
+                self[dest] = self[src1].or(XLEN::from_imm(imm));
             }
             Inst::Xori { imm, dest, src1 } => {
-                self[dest] = self[src1].xor(XLEN::from_32_s(imm));
+                self[dest] = self[src1].xor(XLEN::from_imm(imm));
             }
-            Inst::Slli { imm, dest, src1 } => self[dest] = self[src1].shl(imm),
-            Inst::Srli { imm, dest, src1 } => self[dest] = self[src1].unsigned_shr(imm),
-            Inst::Srai { imm, dest, src1 } => self[dest] = self[src1].signed_shr(imm),
+            Inst::Slli { imm, dest, src1 } => self[dest] = self[src1].shl(imm.as_u32()),
+            Inst::Srli { imm, dest, src1 } => self[dest] = self[src1].unsigned_shr(imm.as_u32()),
+            Inst::Srai { imm, dest, src1 } => self[dest] = self[src1].signed_shr(imm.as_u32()),
             Inst::Add { dest, src1, src2 } => self[dest] = self[src1].add(self[src2]),
             Inst::Sub { dest, src1, src2 } => self[dest] = self[src1].sub(self[src2]),
             Inst::Sll { dest, src1, src2 } => self[dest] = self[src1].shl(self[src2].truncate32()),
@@ -473,6 +474,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
                 }
                 self.reservation_set = None;
             }
+            _ => return Err(Status::UnsupportedInst(inst)),
         }
 
         if !jumped {
@@ -666,6 +668,7 @@ pub trait XLen: Copy + PartialEq + Eq {
     }
     fn from_32_z(v: u32) -> Self;
     fn from_32_s(v: u32) -> Self;
+    fn from_imm(v: Imm) -> Self;
 
     fn truncate8(self) -> u8 {
         self.truncate32() as u8
@@ -714,6 +717,9 @@ impl XLen for u32 {
     }
     fn from_32_z(v: u32) -> Self {
         v
+    }
+    fn from_imm(v: Imm) -> Self {
+        v.as_u32()
     }
     fn as_usize(self) -> usize {
         self as usize

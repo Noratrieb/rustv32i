@@ -102,6 +102,65 @@ impl Display for Reg {
     }
 }
 
+/// An immediate in an instruction.
+/// This represents the real value that will be put in the register,
+/// so sign extension has been performed if necessary, and for instructions
+/// like `lui` the value will have been shifted.
+///
+/// This type is XLEN-agnostic, use the XLEN-specific accessors to get the correct value.
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Imm(u32);
+
+impl Imm {
+    /// The immediate `0`.
+    /// Useful as a shortcut for `Imm::new_u32(0)` and for patterns.
+    pub const ZERO: Self = Self::new_u32(0);
+
+    /// Create a new immediate from the (if necessary) sign-extended value.
+    pub const fn new_i32(value: i32) -> Self {
+        Self(value as u32)
+    }
+
+    /// Create a new immediate from the (if necessary) zero-extended value.
+    pub const  fn new_u32(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Get the `u32` (RV32) value of the immediate.
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// Get the `i32` (RV32) value of the immediate.
+    pub const fn as_i32(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+impl From<i32> for Imm {
+    fn from(value: i32) -> Self {
+        Self::new_i32(value)
+    }
+}
+
+impl From<u32> for Imm {
+    fn from(value: u32) -> Self {
+        Self::new_u32(value)
+    }
+}
+
+impl From<Imm> for u32 {
+    fn from(value: Imm) -> Self {
+        value.as_u32()
+    }
+}
+
+impl From<Imm> for i32 {
+    fn from(value: Imm) -> Self {
+        value.as_i32()
+    }
+}
+
 /// A RISC-V instruction.
 /// 
 /// Every variant is a different instruction, with immediates as `u32`.
@@ -112,66 +171,67 @@ impl Display for Reg {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustfmt::skip]
 #[expect(missing_docs)] // enum variant fields
+#[non_exhaustive]
 pub enum Inst {
     /// Load Upper Immediate
-    Lui { uimm: u32, dest: Reg },
+    Lui { uimm: Imm, dest: Reg },
     /// Add Upper Immediate to PC
-    Auipc { uimm: u32, dest: Reg },
+    Auipc { uimm: Imm, dest: Reg },
 
     /// Jump And Link
-    Jal { offset: u32, dest: Reg },
+    Jal { offset: Imm, dest: Reg },
     /// Jump And Link Register (indirect)
-    Jalr { offset: u32, base: Reg, dest: Reg },
+    Jalr { offset: Imm, base: Reg, dest: Reg },
 
     /// Branch Equal
-    Beq { offset: u32, src1: Reg, src2: Reg },
+    Beq { offset: Imm, src1: Reg, src2: Reg },
     /// Branch Not Equal
-    Bne { offset: u32, src1: Reg, src2: Reg },
+    Bne { offset: Imm, src1: Reg, src2: Reg },
     /// Branch Less Than (signed)
-    Blt { offset: u32, src1: Reg, src2: Reg },
+    Blt { offset: Imm, src1: Reg, src2: Reg },
     /// Branch Greater or Equal (signed)
-    Bge { offset: u32, src1: Reg, src2: Reg },
+    Bge { offset: Imm, src1: Reg, src2: Reg },
     /// Branch Less Than Unsigned
-    Bltu { offset: u32, src1: Reg, src2: Reg },
+    Bltu { offset: Imm, src1: Reg, src2: Reg },
     /// Branch Greater or Equal Unsigned
-    Bgeu { offset: u32, src1: Reg, src2: Reg },
+    Bgeu { offset: Imm, src1: Reg, src2: Reg },
 
     /// Load Byte (sign-ext)
-    Lb { offset: u32, dest: Reg, base: Reg },
+    Lb { offset: Imm, dest: Reg, base: Reg },
     /// Load Unsigned Byte (zero-ext)
-    Lbu { offset: u32, dest: Reg, base: Reg },
+    Lbu { offset: Imm, dest: Reg, base: Reg },
     /// Load Half (sign-ext)
-    Lh { offset: u32, dest: Reg, base: Reg },
+    Lh { offset: Imm, dest: Reg, base: Reg },
     /// Load Unsigned Half (zero-ext)
-    Lhu { offset: u32, dest: Reg, base: Reg },
+    Lhu { offset: Imm, dest: Reg, base: Reg },
     /// Load Word
-    Lw { offset: u32, dest: Reg, base: Reg },
+    Lw { offset: Imm, dest: Reg, base: Reg },
 
     /// Store Byte
-    Sb { offset: u32, src: Reg, base: Reg },
+    Sb { offset: Imm, src: Reg, base: Reg },
     /// Store Half
-    Sh { offset: u32, src: Reg, base: Reg },
+    Sh { offset: Imm, src: Reg, base: Reg },
     /// Store Word
-    Sw { offset: u32, src: Reg, base: Reg },
+    Sw { offset: Imm, src: Reg, base: Reg },
 
     /// Add Immediate
-    Addi { imm: u32, dest: Reg, src1: Reg },
+    Addi { imm: Imm, dest: Reg, src1: Reg },
     /// Set Less Than Immediate (signed)
-    Slti { imm: u32, dest: Reg, src1: Reg },
+    Slti { imm: Imm, dest: Reg, src1: Reg },
     /// Set Less Than Immediate Unsigned
-    Sltiu { imm: u32, dest: Reg, src1: Reg },
+    Sltiu { imm: Imm, dest: Reg, src1: Reg },
     /// XOR Immediate
-    Xori { imm: u32, dest: Reg, src1: Reg },
+    Xori { imm: Imm, dest: Reg, src1: Reg },
     /// OR Immediate
-    Ori { imm: u32, dest: Reg, src1: Reg },
+    Ori { imm: Imm, dest: Reg, src1: Reg },
     /// AND Immediate
-    Andi { imm: u32, dest: Reg, src1: Reg },
+    Andi { imm: Imm, dest: Reg, src1: Reg },
     /// Shift Left Logical Immediate
-    Slli { imm: u32, dest: Reg, src1: Reg },
+    Slli { imm: Imm, dest: Reg, src1: Reg },
     /// Shift Right Logical Immediate (unsigned)
-    Srli { imm: u32, dest: Reg, src1: Reg },
+    Srli { imm: Imm, dest: Reg, src1: Reg },
     /// Shift Right Arithmetic Immediate (signed)
-    Srai { imm: u32, dest: Reg, src1: Reg },
+    Srai { imm: Imm, dest: Reg, src1: Reg },
 
     /// Add
     Add { dest: Reg, src1: Reg, src2: Reg },
@@ -385,91 +445,103 @@ impl Debug for Inst {
 impl Display for Inst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Inst::Lui { uimm, dest } => write!(f, "lui {dest}, {}", uimm >> 12),
-            Inst::Auipc { uimm, dest } => write!(f, "auipc {dest}, {}", uimm >> 12),
+            Inst::Lui { uimm, dest } => write!(f, "lui {dest}, {}", uimm.as_u32() >> 12),
+            Inst::Auipc { uimm, dest } => write!(f, "auipc {dest}, {}", uimm.as_u32() >> 12),
             Inst::Jal { offset, dest } => {
                 if dest.0 == 0 {
-                    write!(f, "j {}", offset as i32)
+                    write!(f, "j {}", offset.as_i32())
                 } else {
-                    write!(f, "jal {dest}, {}", offset as i32)
+                    write!(f, "jal {dest}, {}", offset.as_i32())
                 }
             }
             Inst::Jalr { offset, base, dest } => {
-                if dest == Reg::ZERO && offset == 0 && base == Reg::RA {
+                if dest == Reg::ZERO && offset.as_u32() == 0 && base == Reg::RA {
                     write!(f, "ret")
                 } else {
-                    write!(f, "jalr {dest}, {}({base})", offset as i32)
+                    write!(f, "jalr {dest}, {}({base})", offset.as_i32())
                 }
             }
-            Inst::Beq { offset, src1, src2 } => write!(f, "beq {src1}, {src2}, {}", offset as i32),
-            Inst::Bne { offset, src1, src2 } => write!(f, "bne {src1}, {src2}, {}", offset as i32),
-            Inst::Blt { offset, src1, src2 } => write!(f, "blt {src1}, {src2}, {}", offset as i32),
-            Inst::Bge { offset, src1, src2 } => write!(f, "bge {src1}, {src2}, {}", offset as i32),
+            Inst::Beq { offset, src1, src2 } => {
+                write!(f, "beq {src1}, {src2}, {}", offset.as_i32())
+            }
+            Inst::Bne { offset, src1, src2 } => {
+                write!(f, "bne {src1}, {src2}, {}", offset.as_i32())
+            }
+            Inst::Blt { offset, src1, src2 } => {
+                write!(f, "blt {src1}, {src2}, {}", offset.as_i32())
+            }
+            Inst::Bge { offset, src1, src2 } => {
+                write!(f, "bge {src1}, {src2}, {}", offset.as_i32())
+            }
             Inst::Bltu { offset, src1, src2 } => {
-                write!(f, "bltu {src1}, {src2}, {}", offset as i32)
+                write!(f, "bltu {src1}, {src2}, {}", offset.as_i32())
             }
             Inst::Bgeu { offset, src1, src2 } => {
-                write!(f, "bgeu {src1}, {src2}, {}", offset as i32)
+                write!(f, "bgeu {src1}, {src2}, {}", offset.as_i32())
             }
-            Inst::Lb { offset, dest, base } => write!(f, "lb {dest}, {}({base})", offset as i32),
-            Inst::Lbu { offset, dest, base } => write!(f, "lbu {dest}, {}({base})", offset as i32),
-            Inst::Lh { offset, dest, base } => write!(f, "lh {dest}, {}({base})", offset as i32),
-            Inst::Lhu { offset, dest, base } => write!(f, "lhu {dest}, {}({base})", offset as i32),
-            Inst::Lw { offset, dest, base } => write!(f, "lw {dest}, {}({base})", offset as i32),
-            Inst::Sb { offset, src, base } => write!(f, "sb {src}, {}({base})", offset as i32),
-            Inst::Sh { offset, src, base } => write!(f, "sh {src}, {}({base})", offset as i32),
-            Inst::Sw { offset, src, base } => write!(f, "sw {src}, {}({base})", offset as i32),
+            Inst::Lb { offset, dest, base } => write!(f, "lb {dest}, {}({base})", offset.as_i32()),
+            Inst::Lbu { offset, dest, base } => {
+                write!(f, "lbu {dest}, {}({base})", offset.as_i32())
+            }
+            Inst::Lh { offset, dest, base } => write!(f, "lh {dest}, {}({base})", offset.as_i32()),
+            Inst::Lhu { offset, dest, base } => {
+                write!(f, "lhu {dest}, {}({base})", offset.as_i32())
+            }
+            Inst::Lw { offset, dest, base } => write!(f, "lw {dest}, {}({base})", offset.as_i32()),
+            Inst::Sb { offset, src, base } => write!(f, "sb {src}, {}({base})", offset.as_i32()),
+            Inst::Sh { offset, src, base } => write!(f, "sh {src}, {}({base})", offset.as_i32()),
+            Inst::Sw { offset, src, base } => write!(f, "sw {src}, {}({base})", offset.as_i32()),
             Inst::Addi { imm, dest, src1 } => {
-                if dest.0 == 0 && src1.0 == 0 && imm == 0 {
+                if dest.0 == 0 && src1.0 == 0 && imm.as_u32() == 0 {
                     write!(f, "nop")
                 } else if src1.0 == 0 {
-                    write!(f, "li {dest}, {}", imm as i32)
-                } else if imm == 0 {
+                    write!(f, "li {dest}, {}", imm.as_i32())
+                } else if imm.as_u32() == 0 {
                     write!(f, "mv {dest}, {src1}")
                 } else {
-                    write!(f, "addi {dest}, {src1}, {}", imm as i32)
+                    write!(f, "addi {dest}, {src1}, {}", imm.as_i32())
                 }
             }
             Inst::Slti {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "slti {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "slti {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Sltiu {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "sltiu {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "sltiu {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Andi {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "andi {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "andi {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Ori {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "ori {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "ori {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Xori {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "xori {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "xori {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Slli {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "slli {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "slli {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Srli {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "srli {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "srli {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Srai {
                 imm,
                 dest,
                 src1: rs1,
-            } => write!(f, "srai {dest}, {rs1}, {}", imm as i32),
+            } => write!(f, "srai {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Add { dest, src1, src2 } => {
                 write!(f, "add {dest}, {src1}, {src2}")
             }
@@ -604,15 +676,15 @@ impl InstCode {
         let end_span = 32 - (range.end() + 1);
         (self.0 << (end_span)) >> (end_span + range.start())
     }
-    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
+    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
         for (from, to) in mappings {
             let value = self.extract(from.clone());
             imm |= value << to;
         }
-        imm
+        Imm::new_u32(imm)
     }
-    fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
+    fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
         let mut size = 0;
         for (from, to) in mappings {
@@ -621,7 +693,7 @@ impl InstCode {
             let this_size = from.end() - from.start() + 1;
             size = size.max(*to + this_size);
         }
-        sign_extend(imm, size)
+        Imm::new_i32(sign_extend(imm, size) as i32)
     }
 
     fn opcode(self) -> u32 {
@@ -645,19 +717,19 @@ impl InstCode {
     fn rd(self) -> Reg {
         Reg(self.extract(7..=11) as u8)
     }
-    fn imm_i(self) -> u32 {
+    fn imm_i(self) -> Imm {
         self.immediate_s(&[(20..=31, 0)])
     }
-    fn imm_s(self) -> u32 {
+    fn imm_s(self) -> Imm {
         self.immediate_s(&[(25..=31, 5), (7..=11, 0)])
     }
-    fn imm_b(self) -> u32 {
+    fn imm_b(self) -> Imm {
         self.immediate_s(&[(31..=31, 12), (7..=7, 11), (25..=30, 5), (8..=11, 1)])
     }
-    fn imm_u(self) -> u32 {
+    fn imm_u(self) -> Imm {
         self.immediate_u(&[(12..=31, 12)])
     }
-    fn imm_j(self) -> u32 {
+    fn imm_j(self) -> Imm {
         self.immediate_s(&[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)])
     }
 }
@@ -670,15 +742,15 @@ impl InstCodeC {
         let end_span = u16::BITS - (range.end() + 1);
         ((self.0 << (end_span)) >> (end_span + range.start())) as u32
     }
-    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
+    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
         for (from, to) in mappings {
             let value = self.extract(from.clone());
             imm |= value << to;
         }
-        imm
+        Imm::new_u32(imm)
     }
-    fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> u32 {
+    fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
         let mut size = 0;
         for (from, to) in mappings {
@@ -688,7 +760,7 @@ impl InstCodeC {
             let this_size = from.end() - from.start() + 1;
             size = size.max(*to + this_size);
         }
-        sign_extend(imm, size)
+        Imm::new_i32(sign_extend(imm, size) as i32)
     }
     fn quadrant(self) -> u16 {
         self.0 & 0b11
@@ -790,7 +862,7 @@ impl Inst {
     /// ```rust
     /// // Compressed addi sp, sp, -0x20
     /// let x = 0x1101_u16;
-    /// let expected = rvdc::Inst::Addi { imm: (-0x20_i32) as u32, dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
+    /// let expected = rvdc::Inst::Addi { imm: rvdc::Imm::new_i32(-0x20), dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
     ///
     /// let inst = rvdc::Inst::decode_compressed(x).unwrap();
     /// assert_eq!(inst, expected);
@@ -807,7 +879,7 @@ impl Inst {
                 0b000 => {
                     let imm =
                         code.immediate_u(&[(5..=5, 3), (6..=6, 2), (7..=10, 6), (11..=12, 4)]);
-                    if imm == 0 {
+                    if imm.as_u32() == 0 {
                         return Err(decode_error(code, "uimm=0 for C.ADDISPN is reserved"));
                     }
                     Inst::Addi {
@@ -959,7 +1031,7 @@ impl Inst {
                         // C.LUI -> lui \rd, \imm
                         _ => {
                             let uimm = code.immediate_s(&[(2..=6, 12), (12..=12, 17)]);
-                            if uimm == 0 {
+                            if uimm.as_u32() == 0 {
                                 return Err(decode_error(code, "imm"));
                             }
                             Inst::Lui {
@@ -1032,7 +1104,7 @@ impl Inst {
                                 return Err(decode_error(code, "rs1"));
                             }
                             Inst::Jalr {
-                                offset: 0,
+                                offset: Imm::ZERO,
                                 base: rd_rs1,
                                 dest: Reg::ZERO,
                             }
@@ -1047,7 +1119,7 @@ impl Inst {
                         (1, 0, 0) => Inst::Ebreak,
                         // C.JALR -> jalr ra, 0(\rs1)
                         (1, _, 0) if rd_rs1.0 != 0 => Inst::Jalr {
-                            offset: 0,
+                            offset: Imm::ZERO,
                             base: rd_rs1,
                             dest: Reg::RA,
                         },
@@ -1227,12 +1299,12 @@ impl Inst {
                 }
                 0b101 => match code.funct7() {
                     0b0000000 => Inst::Srli {
-                        imm: code.rs2_imm(),
+                        imm: Imm::new_u32(code.rs2_imm()),
                         dest: code.rd(),
                         src1: code.rs1(),
                     },
                     0b0100000 => Inst::Srai {
-                        imm: code.rs2_imm(),
+                        imm: Imm::new_u32(code.rs2_imm()),
                         dest: code.rd(),
                         src1: code.rs1(),
                     },
@@ -1309,7 +1381,7 @@ impl Inst {
                 if code.rs1().0 != 0 {
                     return Err(decode_error(code, "rs1"));
                 }
-                match code.imm_i() {
+                match code.imm_i().as_u32() {
                     0b000000000000 => Inst::Ecall,
                     0b000000000001 => Inst::Ebreak,
                     _ => return Err(decode_error(code, "imm")),
@@ -1390,6 +1462,7 @@ mod tests {
 
     use crate::Fence;
     use crate::FenceSet;
+    use crate::Imm;
     use crate::Inst;
     use crate::Reg;
 
@@ -1467,7 +1540,7 @@ mod tests {
                 dest: Reg::ZERO, ..
             } => false,
             // This does roundtrip, but only through C.MV, not C.ADDI
-            Inst::Addi { imm: 0, .. } => false,
+            Inst::Addi { imm: Imm::ZERO, .. } => false,
             // This does rountrip, but not through C.ADDI
             Inst::Addi {
                 dest: Reg::SP,
@@ -1478,15 +1551,15 @@ mod tests {
             Inst::Slli {
                 dest: Reg::ZERO, ..
             }
-            | Inst::Slli { imm: 0, .. }
+            | Inst::Slli { imm: Imm::ZERO, .. }
             | Inst::Srli {
                 dest: Reg::ZERO, ..
             }
-            | Inst::Srli { imm: 0, .. }
+            | Inst::Srli { imm: Imm::ZERO, .. }
             | Inst::Srai {
                 dest: Reg::ZERO, ..
             }
-            | Inst::Srai { imm: 0, .. } => false,
+            | Inst::Srai { imm: Imm::ZERO, .. } => false,
             // HINT
             Inst::Lui {
                 dest: Reg::ZERO, ..

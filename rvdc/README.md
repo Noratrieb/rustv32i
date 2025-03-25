@@ -4,7 +4,9 @@ The main function is [`Inst::decode`], which will decode an instruction into the
 The [`core::fmt::Display`] impl of [`Inst`] provides disassembly functionality
 (note that the precise output of that implementation is not considered stable).
 
-# Register size support
+# XLEN (Register size) support
+
+RISC-V calls the parameter of the instruction size `XLEN`, and this crate refers to it as such.
 
 This crate currenly only supports RV32 instructions.
 RV64 instructions that are the same between versions will still be decoded successfully, but the user
@@ -13,7 +15,7 @@ has to be careful around sign-extended immediates to preserve the correct value 
 RV64-specific instructions are not yet implemented, but will be in the future.
 The immediates will also be switched to `u64` in the future to allow for easier usage of RV64.
 
-RV128 is not intended to be supported.
+RV128 is currently not intended to be supported.
 
 # Extension support
 
@@ -34,7 +36,7 @@ More extensions may be implemented in the future.
 ```rust
 // addi sp, sp, -0x20 (compressed)
 let x = 0x1101_u32;
-let expected = rvdc::Inst::Addi { imm: (-0x20_i32) as u32, dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
+let expected = rvdc::Inst::Addi { imm: rvdc::Imm::new_i32(-0x20), dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
 
 let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
 assert_eq!(inst, expected);
@@ -45,7 +47,7 @@ assert_eq!(format!("{inst}"), "addi sp, sp, -32")
 ```rust
 // auipc t1, 0xa
 let x = 0x0000a317;
-let expected = rvdc::Inst::Auipc { uimm: 0xa << 12, dest: rvdc::Reg::T1 };
+let expected = rvdc::Inst::Auipc { uimm: rvdc::Imm::new_u32(0xa << 12), dest: rvdc::Reg::T1 };
 
 let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
 assert_eq!(inst, expected);

@@ -1,3 +1,8 @@
+## 2.0.0
+
+- BREAKING CHANGE: Make `Inst` `#[non_exhaustive]`
+- BREAKING CHANGE: Change immediate fields in `Inst` to `Imm`
+
 ## 0.1.1
 
 - Add `Fence::is_tso`
