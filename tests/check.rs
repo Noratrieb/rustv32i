@@ -27,21 +27,30 @@ fn check() -> eyre::Result<()> {
             continue;
         }
 
-        test_case(tmpdir.path(), &file, name, "rv32ima")?;
-        test_case(tmpdir.path(), &file, name, "rv32imac")?;
+        test_case(tmpdir.path(), &file, name, 32, "rv32ima")?;
+        test_case(tmpdir.path(), &file, name, 32, "rv32imac")?;
+
+        // test_case(tmpdir.path(), &file, name, 64, "rv64ima")?;
+        // test_case(tmpdir.path(), &file, name, 64, "rv64imac")?;
     }
 
     Ok(())
 }
 
-fn test_case(tmpdir: &Path, file: &DirEntry, name: &str, march: &str) -> eyre::Result<()> {
+fn test_case(
+    tmpdir: &Path,
+    file: &DirEntry,
+    name: &str,
+    size: u8,
+    march: &str,
+) -> eyre::Result<()> {
     let name = format!("{name} ({march})");
     write!(std::io::stdout(), "test {name} ...")?;
     std::io::stdout().flush()?;
 
     eprintln!("---- START TEST {name} -----");
 
-    let output = build(&tmpdir, &file.path(), march).wrap_err(format!("building {name}"))?;
+    let output = build(&tmpdir, &file.path(), size, march).wrap_err(format!("building {name}"))?;
     let content =
         std::fs::read(&output).wrap_err(format!("reading output from {}", output.display()))?;
 
@@ -51,6 +60,17 @@ fn test_case(tmpdir: &Path, file: &DirEntry, name: &str, march: &str) -> eyre::R
         0,
         Box::new(|_, xreg| {
             if xreg[Reg::A7.0 as usize] == u32::MAX {
+                if xreg[Reg::A0.0 as usize] == 1 {
+                    Err(rustv32i::emu::Status::Exit { code: 0 })
+                } else {
+                    Err(rustv32i::emu::Status::Trap("fail"))
+                }
+            } else {
+                Err(rustv32i::emu::Status::Trap("wrong syscall"))
+            }
+        }),
+        Box::new(|_, xreg| {
+            if xreg[Reg::A7.0 as usize] == u32::MAX as u64 {
                 if xreg[Reg::A0.0 as usize] == 1 {
                     Err(rustv32i::emu::Status::Exit { code: 0 })
                 } else {
@@ -71,11 +91,12 @@ fn test_case(tmpdir: &Path, file: &DirEntry, name: &str, march: &str) -> eyre::R
     }
 }
 
-fn build(tmpdir: &Path, src: &Path, march: &str) -> eyre::Result<PathBuf> {
+fn build(tmpdir: &Path, src: &Path, size: u8, march: &str) -> eyre::Result<PathBuf> {
     let out_path = tmpdir.join(Path::new(src.file_name().unwrap()).with_extension(""));
 
     let mut cmd = std::process::Command::new("clang");
-    cmd.args(["-target", "riscv32-unknown-none-elf", "-nostdlib"]);
+    cmd.args(["-target", &format!("riscv{size}-unknown-none-elf")]);
+    cmd.arg("-nostdlib");
     cmd.arg(format!("-march={march}"));
     cmd.arg(src);
     cmd.arg("-o");

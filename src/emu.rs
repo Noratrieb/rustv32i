@@ -20,44 +20,50 @@ impl Memory {
             Ok(())
         }
     }
-    pub fn slice<XLEN: XLen>(&self, addr: XLEN, len: u32) -> Result<&[u8], Status> {
+    pub fn slice<XLEN: XLen>(&self, addr: XLEN, len: XLEN) -> Result<&[u8], Status> {
         self.mem
             .get((addr.as_usize())..)
             .ok_or(Status::InvalidMemoryAccess(addr.as_usize()))?
-            .get(..(len as usize))
+            .get(..(len.as_usize()))
             .ok_or(Status::InvalidMemoryAccess(addr.as_usize()))
     }
-    pub fn slice_mut<XLEN: XLen>(&mut self, addr: XLEN, len: u32) -> Result<&mut [u8], Status> {
+    pub fn slice_mut<XLEN: XLen>(&mut self, addr: XLEN, len: XLEN) -> Result<&mut [u8], Status> {
         self.mem
             .get_mut((addr.as_usize())..)
             .ok_or(Status::InvalidMemoryAccess(addr.as_usize()))?
-            .get_mut(..(len as usize))
+            .get_mut(..(len.as_usize()))
             .ok_or(Status::InvalidMemoryAccess(addr.as_usize()))
     }
 
     pub fn load_u8<XLEN: XLen>(&self, addr: XLEN) -> Result<u8, Status> {
-        Ok(u8::from_le_bytes(self.slice(addr, 1)?.try_into().unwrap()))
+        Ok(u8::from_le_bytes(
+            self.slice(addr, XLEN::from_32_z(1))?.try_into().unwrap(),
+        ))
     }
     pub fn load_u16<XLEN: XLen>(&self, addr: XLEN) -> Result<u16, Status> {
-        Ok(u16::from_le_bytes(self.slice(addr, 2)?.try_into().unwrap()))
+        Ok(u16::from_le_bytes(
+            self.slice(addr, XLEN::from_32_z(2))?.try_into().unwrap(),
+        ))
     }
     pub fn load_u32<XLEN: XLen>(&self, addr: XLEN) -> Result<u32, Status> {
-        Ok(u32::from_le_bytes(self.slice(addr, 4)?.try_into().unwrap()))
+        Ok(u32::from_le_bytes(
+            self.slice(addr, XLEN::from_32_z(4))?.try_into().unwrap(),
+        ))
     }
     pub fn store_u8<XLEN: XLen>(&mut self, addr: XLEN, value: u8) -> Result<(), Status> {
-        self.slice_mut(addr, 1)?
+        self.slice_mut(addr, XLEN::from_32_z(1))?
             .copy_from_slice(&value.to_le_bytes());
         Ok(())
     }
     pub fn store_u16<XLEN: XLen>(&mut self, addr: XLEN, value: u16) -> Result<(), Status> {
         self.check_align(addr, 2)?;
-        self.slice_mut(addr, 2)?
+        self.slice_mut(addr, XLEN::from_32_z(2))?
             .copy_from_slice(&value.to_le_bytes());
         Ok(())
     }
     pub fn store_u32<XLEN: XLen>(&mut self, addr: XLEN, value: u32) -> Result<(), Status> {
         self.check_align(addr, 4)?;
-        self.slice_mut(addr, 4)?
+        self.slice_mut(addr, XLEN::from_32_z(4))?
             .copy_from_slice(&value.to_le_bytes());
         Ok(())
     }
@@ -139,6 +145,28 @@ fn hash_color(value: usize) -> impl Display {
 }
 
 impl<XLEN: XLen> Emulator<XLEN> {
+    pub fn new(
+        mem: Memory,
+        start: XLEN,
+        break_addr: XLEN,
+        debug: bool,
+        ecall_handler: Box<dyn FnMut(&mut Memory, &mut [XLEN; 32]) -> Result<(), Status>>,
+    ) -> Self {
+        Self {
+            mem,
+            xreg: [XLEN::ZERO; 32],
+            xreg0_value: XLEN::ZERO,
+            pc: start,
+            reservation_set: None,
+
+            is_breaking: false,
+
+            break_pc: break_addr,
+            debug,
+            ecall_handler,
+        }
+    }
+
     pub fn start_linux(&mut self) -> Status {
         self.setup_linux_stack().unwrap();
 
@@ -210,7 +238,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
             print!("0x{:x} ", self.pc.as_usize());
         }
 
-        let (inst, was_compressed) = Inst::decode(code)?;
+        let (inst, was_compressed) = Inst::decode(code, XLEN::XLEN)?;
 
         if self.debug {
             println!(
@@ -649,11 +677,21 @@ impl<XLEN: XLen> Emulator<XLEN> {
 }
 
 pub trait XLen: Copy + PartialEq + Eq {
+    type Signed;
+    type NextUnsigned;
+    type NextSigned;
+
+    const XLEN: rvdc::Xlen;
+
     const ZERO: Self;
     const SIGNED_MIN: Self;
     const MAX: Self;
 
-    fn from_bool(v: bool) -> Self;
+    fn switch<R>(self, on_32: impl FnOnce(u32) -> R, on_64: impl FnOnce(u64) -> R) -> R;
+
+    fn from_bool(v: bool) -> Self {
+        Self::from_32_z(v as u32)
+    }
     fn from_8_z(v: u8) -> Self {
         Self::from_32_z(v as u32)
     }
@@ -704,14 +742,107 @@ pub trait XLen: Copy + PartialEq + Eq {
     fn unsigned_rem(self, other: Self) -> Self;
 }
 
-impl XLen for u32 {
-    const ZERO: Self = 0;
-    const SIGNED_MIN: Self = i32::MIN as u32;
-    const MAX: Self = u32::MAX;
+macro_rules! xlen_impl {
+    () => {
+        const ZERO: Self = 0;
+        const SIGNED_MIN: Self = Self::Signed::MIN as Self;
+        const MAX: Self = Self::MAX;
 
-    fn from_bool(v: bool) -> Self {
-        v as u32
+        fn as_usize(self) -> usize {
+            self as usize
+        }
+        fn truncate32(self) -> u32 {
+            self as u32
+        }
+
+        fn add(self, other: Self) -> Self {
+            self.wrapping_add(other)
+        }
+        fn sub(self, other: Self) -> Self {
+            self.wrapping_sub(other)
+        }
+        fn and(self, other: Self) -> Self {
+            self & other
+        }
+        fn or(self, other: Self) -> Self {
+            self | other
+        }
+        fn xor(self, other: Self) -> Self {
+            self ^ other
+        }
+        fn signed_lt(self, other: Self) -> bool {
+            (self as Self::Signed) < (other as Self::Signed)
+        }
+        fn unsigned_lt(self, other: Self) -> bool {
+            self < other
+        }
+        fn signed_ge(self, other: Self) -> bool {
+            (self as Self::Signed) >= (other as Self::Signed)
+        }
+        fn unsigned_ge(self, other: Self) -> bool {
+            self >= other
+        }
+        fn shl(self, other: u32) -> Self {
+            self.wrapping_shl(other)
+        }
+        fn unsigned_shr(self, other: u32) -> Self {
+            self.wrapping_shr(other)
+        }
+        fn signed_shr(self, other: u32) -> Self {
+            ((self as Self::Signed).wrapping_shr(other)) as Self
+        }
+        fn signed_min(self, other: Self) -> Self {
+            (self as Self::Signed).min(other as Self::Signed) as Self
+        }
+        fn unsigned_min(self, other: Self) -> Self {
+            self.min(other)
+        }
+        fn signed_max(self, other: Self) -> Self {
+            (self as Self::Signed).max(other as Self::Signed) as Self
+        }
+        fn unsigned_max(self, other: Self) -> Self {
+            self.max(other)
+        }
+        fn mul_lower(self, other: Self) -> Self {
+            (self as Self::Signed).wrapping_mul(other as Self::Signed) as Self
+        }
+        fn signed_mul_upper(self, other: Self) -> Self {
+            let mul_result = (self as Self::Signed as Self::NextSigned)
+                .wrapping_mul(other as Self::Signed as Self::NextSigned);
+            let shifted = (mul_result as Self::NextUnsigned) >> Self::BITS;
+            shifted as Self
+        }
+        fn unsigned_mul_upper(self, other: Self) -> Self {
+            let shifted = ((self as Self::NextUnsigned).wrapping_mul(other as Self::NextUnsigned))
+                >> Self::BITS;
+            shifted as Self
+        }
+        fn signed_div(self, other: Self) -> Self {
+            ((self as Self::Signed) / (other as Self::Signed)) as Self
+        }
+        fn unsigned_div(self, other: Self) -> Self {
+            self / other
+        }
+        fn signed_rem(self, other: Self) -> Self {
+            ((self as Self::Signed) % (other as Self::Signed)) as Self
+        }
+        fn unsigned_rem(self, other: Self) -> Self {
+            self % other
+        }
+    };
+}
+
+impl XLen for u32 {
+    type Signed = i32;
+    type NextUnsigned = u64;
+    type NextSigned = i64;
+
+    const XLEN: rvdc::Xlen = rvdc::Xlen::Rv32;
+
+    fn switch<R>(self, on_32: impl FnOnce(u32) -> R, _: impl FnOnce(u64) -> R) -> R {
+        on_32(self)
     }
+
     fn from_32_s(v: u32) -> Self {
         v
     }
@@ -721,84 +852,30 @@ impl XLen for u32 {
     fn from_imm(v: Imm) -> Self {
         v.as_u32()
     }
-    fn as_usize(self) -> usize {
-        self as usize
+
+    xlen_impl!();
+}
+
+impl XLen for u64 {
+    type Signed = i64;
+    type NextUnsigned = u128;
+    type NextSigned = i128;
+
+    const XLEN: rvdc::Xlen = rvdc::Xlen::Rv64;
+
+    fn switch<R>(self, _: impl FnOnce(u32) -> R, on_64: impl FnOnce(u64) -> R) -> R {
+        on_64(self)
     }
 
-    fn truncate32(self) -> u32 {
-        self
+    fn from_32_s(v: u32) -> Self {
+        v as i32 as i64 as u64
+    }
+    fn from_32_z(v: u32) -> Self {
+        v as u64
+    }
+    fn from_imm(v: Imm) -> Self {
+        v.as_u64()
     }
 
-    fn add(self, other: Self) -> Self {
-        self.wrapping_add(other)
-    }
-    fn sub(self, other: Self) -> Self {
-        self.wrapping_sub(other)
-    }
-    fn and(self, other: Self) -> Self {
-        self & other
-    }
-    fn or(self, other: Self) -> Self {
-        self | other
-    }
-    fn xor(self, other: Self) -> Self {
-        self ^ other
-    }
-    fn signed_lt(self, other: Self) -> bool {
-        (self as i32) < (other as i32)
-    }
-    fn unsigned_lt(self, other: Self) -> bool {
-        self < other
-    }
-    fn signed_ge(self, other: Self) -> bool {
-        (self as i32) >= (other as i32)
-    }
-    fn unsigned_ge(self, other: Self) -> bool {
-        self >= other
-    }
-    fn shl(self, other: u32) -> Self {
-        self.wrapping_shl(other)
-    }
-    fn unsigned_shr(self, other: u32) -> Self {
-        self.wrapping_shr(other)
-    }
-    fn signed_shr(self, other: u32) -> Self {
-        ((self as i32).wrapping_shr(other)) as u32
-    }
-    fn signed_min(self, other: Self) -> Self {
-        (self as i32).min(other as i32) as u32
-    }
-    fn unsigned_min(self, other: Self) -> Self {
-        self.min(other)
-    }
-    fn signed_max(self, other: Self) -> Self {
-        (self as i32).max(other as i32) as u32
-    }
-    fn unsigned_max(self, other: Self) -> Self {
-        self.max(other)
-    }
-    fn mul_lower(self, other: Self) -> Self {
-        (self as i32).wrapping_mul(other as i32) as u32
-    }
-    fn signed_mul_upper(self, other: Self) -> Self {
-        let mul_result = (self as i32 as i64).wrapping_mul(other as i32 as i64);
-        let shifted = (mul_result as u64) >> 32;
-        shifted as u32
-    }
-    fn unsigned_mul_upper(self, other: Self) -> Self {
-        let shifted = ((self as u64).wrapping_mul(other as u64)) >> 32;
-        shifted as u32
-    }
-    fn signed_div(self, other: Self) -> Self {
-        ((self as i32) / (other as i32)) as u32
-    }
-    fn unsigned_div(self, other: Self) -> Self {
-        self / other
-    }
-    fn signed_rem(self, other: Self) -> Self {
-        ((self as i32) % (other as i32)) as u32
-    }
-    fn unsigned_rem(self, other: Self) -> Self {
-        self % other
-    }
+    xlen_impl!();
 }

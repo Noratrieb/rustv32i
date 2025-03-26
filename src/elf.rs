@@ -32,18 +32,30 @@ pub struct Header {
 }
 
 #[derive(Debug)]
-pub struct Phdr32 {
+pub struct Phdr {
     pub p_type: u32,
-    pub p_offset: u32,
-    pub p_vaddr: u32,
-    pub p_paddr: u32,
-    pub p_filesz: u32,
-    pub p_memsz: u32,
+    pub p_offset: Offset,
+    pub p_vaddr: Addr,
+    pub p_paddr: Addr,
+    pub p_filesz: u64,
+    pub p_memsz: u64,
     pub p_flags: u32,
-    pub p_align: u32,
+    pub p_align: u64,
 }
 
 impl Elf<'_> {
+    fn class(&self) -> Result<ElfClass> {
+        let (_, class) = self.content.split_u32()?;
+        let (class, _) = class.split_bytes(1)?;
+        Ok(match class[0] {
+            // ELFCLASS32
+            1 => ElfClass::Elf32,
+            // ELFCLASS64
+            2 => ElfClass::Elf64,
+            _ => bail!("not a ELF32 or ELF64 file (EI_CLASS={})", class[0]),
+        })
+    }
+
     pub fn header(&self) -> Result<Header> {
         let (ident, rest) = self.content.split_bytes(16)?;
         if ident[..4] != *b"\x7fELF" {
@@ -140,8 +152,9 @@ impl Elf<'_> {
         })
     }
 
-    pub fn segments_32(&self) -> Result<Vec<Phdr32>> {
+    pub fn segments(&self) -> Result<Vec<Phdr>> {
         let header = self.header()?;
+        let class = self.class()?;
 
         let (_, phdrs) = self.content.split_bytes(header.e_phoff.0 as usize)?;
         let (mut phdrs, _) = phdrs.split_bytes((header.e_phentsize * header.e_phnum) as usize)?;
@@ -152,25 +165,51 @@ impl Elf<'_> {
             let phdr;
             (phdr, phdrs) = phdrs.split_bytes(header.e_phentsize as usize)?;
 
-            let (p_type, phdr) = phdr.split_u32()?;
-            let (p_offset, phdr) = phdr.split_u32()?;
-            let (p_vaddr, phdr) = phdr.split_u32()?;
-            let (p_paddr, phdr) = phdr.split_u32()?;
-            let (p_filesz, phdr) = phdr.split_u32()?;
-            let (p_memsz, phdr) = phdr.split_u32()?;
-            let (p_flags, phdr) = phdr.split_u32()?;
-            let (p_align, _) = phdr.split_u32()?;
+            let phdr = match class {
+                ElfClass::Elf32 => {
+                    let (p_type, phdr) = phdr.split_u32()?;
+                    let (p_offset, phdr) = phdr.split_u32()?;
+                    let (p_vaddr, phdr) = phdr.split_u32()?;
+                    let (p_paddr, phdr) = phdr.split_u32()?;
+                    let (p_filesz, phdr) = phdr.split_u32()?;
+                    let (p_memsz, phdr) = phdr.split_u32()?;
+                    let (p_flags, phdr) = phdr.split_u32()?;
+                    let (p_align, _) = phdr.split_u32()?;
 
-            parsed_phdrs.push(Phdr32 {
-                p_type,
-                p_offset,
-                p_vaddr,
-                p_paddr,
-                p_filesz,
-                p_memsz,
-                p_flags,
-                p_align,
-            });
+                    Phdr {
+                        p_type,
+                        p_offset: Offset(p_offset as u64),
+                        p_vaddr: Addr(p_vaddr as u64),
+                        p_paddr: Addr(p_paddr as u64),
+                        p_filesz: p_filesz as u64,
+                        p_memsz: p_memsz as u64,
+                        p_flags,
+                        p_align: p_align as u64,
+                    }
+                }
+                ElfClass::Elf64 => {
+                    let (p_type, phdr) = phdr.split_u32()?;
+                    let (p_flags, phdr) = phdr.split_u32()?;
+                    let (p_offset, phdr) = phdr.split_u64()?;
+                    let (p_vaddr, phdr) = phdr.split_u64()?;
+                    let (p_paddr, phdr) = phdr.split_u64()?;
+                    let (p_filesz, phdr) = phdr.split_u64()?;
+                    let (p_memsz, phdr) = phdr.split_u64()?;
+                    let (p_align, _) = phdr.split_u64()?;
+
+                    Phdr {
+                        p_type,
+                        p_offset: Offset(p_offset),
+                        p_vaddr: Addr(p_vaddr),
+                        p_paddr: Addr(p_paddr),
+                        p_filesz,
+                        p_memsz,
+                        p_flags,
+                        p_align,
+                    }
+                }
+            };
+            parsed_phdrs.push(phdr);
         }
 
         Ok(parsed_phdrs)

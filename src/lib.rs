@@ -9,13 +9,14 @@ const MEMORY_SIZE: usize = 2 << 21;
 pub fn execute_linux_elf(
     elf: &[u8],
     debug: bool,
-    break_addr: u32,
-    ecall_handler: Box<dyn FnMut(&mut emu::Memory, &mut [u32; 32]) -> Result<(), emu::Status>>,
+    break_addr: u64,
+    ecall_handler32: Box<dyn FnMut(&mut emu::Memory, &mut [u32; 32]) -> Result<(), emu::Status>>,
+    ecall_handler64: Box<dyn FnMut(&mut emu::Memory, &mut [u64; 32]) -> Result<(), emu::Status>>,
 ) -> eyre::Result<emu::Status> {
     let elf = elf::Elf { content: elf };
     let header = elf.header()?;
 
-    let segments = elf.segments_32()?;
+    let segments = elf.segments()?;
 
     let mut mem = emu::Memory {
         mem: vec![0; MEMORY_SIZE],
@@ -30,13 +31,13 @@ pub fn execute_linux_elf(
                 if phdr.p_filesz > 0 {
                     let contents = &elf
                         .content
-                        .get((phdr.p_offset as usize)..)
+                        .get((phdr.p_offset.0 as usize)..)
                         .ok_or_eyre("invalid offset")?
                         .get(..(phdr.p_filesz as usize))
                         .ok_or_eyre("invalid offset")?;
 
                     mem.mem
-                        .get_mut((phdr.p_vaddr as usize)..)
+                        .get_mut((phdr.p_vaddr.0 as usize)..)
                         .ok_or_eyre("invalid offset")?
                         .get_mut(..(phdr.p_filesz as usize))
                         .ok_or_eyre("invalid offset")?
@@ -61,19 +62,16 @@ pub fn execute_linux_elf(
 
     let start = header.e_entry;
 
-    let mut emu = emu::Emulator {
-        mem,
-        xreg: [0; 32],
-        xreg0_value: 0,
-        pc: start.0 as u32,
-        reservation_set: None,
-
-        is_breaking: false,
-
-        break_pc: break_addr,
-        debug,
-        ecall_handler,
-    };
-
-    Ok(emu.start_linux())
+    match header.class {
+        elf::ElfClass::Elf32 => {
+            let mut emu =
+                emu::Emulator::<u32>::new(mem, start.0 as u32, break_addr as u32, debug, ecall_handler32);
+            Ok(emu.start_linux())
+        }
+        elf::ElfClass::Elf64 => {
+            let mut emu =
+                emu::Emulator::<u64>::new(mem, start.0, break_addr, debug, ecall_handler64);
+            Ok(emu.start_linux())
+        }
+    }
 }

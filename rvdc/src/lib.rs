@@ -5,6 +5,27 @@
 use core::fmt::{self, Debug, Display};
 use core::ops::RangeInclusive;
 
+/// The register size of the ISA, RV32 or RV64.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Xlen {
+    /// 32 bit
+    Rv32,
+    /// 64 bit
+    Rv64,
+}
+
+impl Xlen {
+    /// Whether this is [`Xlen::Rv32`].
+    pub fn is_32(self) -> bool {
+        matches!(self, Self::Rv32)
+    }
+
+    /// Whether this is [`Xlen::Rv64`].
+    pub fn is_64(self) -> bool {
+        matches!(self, Self::Rv64)
+    }
+}
+
 /// A decoded RISC-V integer register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Reg(pub u8);
@@ -109,7 +130,7 @@ impl Display for Reg {
 ///
 /// This type is XLEN-agnostic, use the XLEN-specific accessors to get the correct value.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Imm(u32);
+pub struct Imm(u64);
 
 impl Imm {
     /// The immediate `0`.
@@ -118,22 +139,32 @@ impl Imm {
 
     /// Create a new immediate from the (if necessary) sign-extended value.
     pub const fn new_i32(value: i32) -> Self {
-        Self(value as u32)
+        Self(value as i64 as u64)
     }
 
     /// Create a new immediate from the (if necessary) zero-extended value.
-    pub const  fn new_u32(value: u32) -> Self {
-        Self(value)
+    pub const fn new_u32(value: u32) -> Self {
+        Self(value as u64)
     }
 
     /// Get the `u32` (RV32) value of the immediate.
     pub const fn as_u32(self) -> u32 {
-        self.0
+        self.0 as u32
     }
 
     /// Get the `i32` (RV32) value of the immediate.
     pub const fn as_i32(self) -> i32 {
         self.0 as i32
+    }
+
+    /// Get the `u64` (RV64) value of the immediate.
+    pub const fn as_u64(self) -> u64 {
+        self.0 as u64
+    }
+
+    /// Get the `i64` (RV64) value of the immediate.
+    pub const fn as_i64(self) -> i64 {
+        self.0 as i64
     }
 }
 
@@ -216,6 +247,8 @@ pub enum Inst {
 
     /// Add Immediate
     Addi { imm: Imm, dest: Reg, src1: Reg },
+    /// Add Immediate 32-bit (**RV64 only**)
+    AddiW { imm: Imm, dest: Reg, src1: Reg },
     /// Set Less Than Immediate (signed)
     Slti { imm: Imm, dest: Reg, src1: Reg },
     /// Set Less Than Immediate Unsigned
@@ -228,10 +261,16 @@ pub enum Inst {
     Andi { imm: Imm, dest: Reg, src1: Reg },
     /// Shift Left Logical Immediate
     Slli { imm: Imm, dest: Reg, src1: Reg },
+    /// Shift Left Logical Immediate 32-bit (**RV64 only**)
+    SlliW { imm: Imm, dest: Reg, src1: Reg },
     /// Shift Right Logical Immediate (unsigned)
     Srli { imm: Imm, dest: Reg, src1: Reg },
+    /// Shift Right Logical Immediate (unsigned) 32-bit (**RV64 only**)
+    SrliW { imm: Imm, dest: Reg, src1: Reg },
     /// Shift Right Arithmetic Immediate (signed)
     Srai { imm: Imm, dest: Reg, src1: Reg },
+    /// Shift Right Arithmetic Immediate (signed) 32-bit (**RV64 only**)
+    SraiW { imm: Imm, dest: Reg, src1: Reg },
 
     /// Add
     Add { dest: Reg, src1: Reg, src2: Reg },
@@ -502,6 +541,13 @@ impl Display for Inst {
                     write!(f, "addi {dest}, {src1}, {}", imm.as_i32())
                 }
             }
+            Inst::AddiW { imm, dest, src1 } => {
+                if imm.as_u32() == 0 {
+                    write!(f, "sext.w {dest}, {src1}")
+                } else {
+                    write!(f, "addi.w {dest}, {src1}, {}", imm.as_i32())
+                }
+            }
             Inst::Slti {
                 imm,
                 dest,
@@ -532,16 +578,31 @@ impl Display for Inst {
                 dest,
                 src1: rs1,
             } => write!(f, "slli {dest}, {rs1}, {}", imm.as_i32()),
+            Inst::SlliW {
+                imm,
+                dest,
+                src1: rs1,
+            } => write!(f, "slliw {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Srli {
                 imm,
                 dest,
                 src1: rs1,
             } => write!(f, "srli {dest}, {rs1}, {}", imm.as_i32()),
+            Inst::SrliW {
+                imm,
+                dest,
+                src1: rs1,
+            } => write!(f, "srliw {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Srai {
                 imm,
                 dest,
                 src1: rs1,
             } => write!(f, "srai {dest}, {rs1}, {}", imm.as_i32()),
+            Inst::SraiW {
+                imm,
+                dest,
+                src1: rs1,
+            } => write!(f, "sraiw {dest}, {rs1}, {}", imm.as_i32()),
             Inst::Add { dest, src1, src2 } => {
                 write!(f, "add {dest}, {src1}, {src2}")
             }
@@ -847,12 +908,15 @@ impl Inst {
     /// If the caller wants to avoid reading more bytes than necessary, [`Self::first_byte_is_compressed`]
     /// can be used to check, read the required bytes, and then call [`Self::decode_compressed`] or
     /// [`Self::decode_normal`] directly.
-    pub fn decode(code: u32) -> Result<(Inst, IsCompressed), DecodeError> {
+    pub fn decode(code: u32, xlen: Xlen) -> Result<(Inst, IsCompressed), DecodeError> {
         let is_compressed = (code & 0b11) != 0b11;
         if is_compressed {
-            Ok((Self::decode_compressed(code as u16)?, IsCompressed::Yes))
+            Ok((
+                Self::decode_compressed(code as u16, xlen)?,
+                IsCompressed::Yes,
+            ))
         } else {
-            Ok((Self::decode_normal(code)?, IsCompressed::No))
+            Ok((Self::decode_normal(code, xlen)?, IsCompressed::No))
         }
     }
 
@@ -867,7 +931,7 @@ impl Inst {
     /// let inst = rvdc::Inst::decode_compressed(x).unwrap();
     /// assert_eq!(inst, expected);
     /// ```
-    pub fn decode_compressed(code: u16) -> Result<Inst, DecodeError> {
+    pub fn decode_compressed(code: u16, xlen: Xlen) -> Result<Inst, DecodeError> {
         let code = InstCodeC(code);
         if code.0 == 0 {
             return Err(decode_error(code, "null instruction"));
@@ -1146,7 +1210,7 @@ impl Inst {
     }
 
     /// Decode a normal (not compressed) instruction.
-    pub fn decode_normal(code: u32) -> Result<Inst, DecodeError> {
+    pub fn decode_normal(code: u32, xlen: Xlen) -> Result<Inst, DecodeError> {
         let code = InstCode(code);
         let inst = match code.opcode() {
             // LUI
@@ -1312,6 +1376,47 @@ impl Inst {
                 },
                 _ => return Err(decode_error(code, "OP-IMM funct3")),
             },
+            // OP-IMM-32
+            0b0011011 => {
+                if !xlen.is_64() {
+                    return Err(decode_error(code, "OP-IMM-32 only on RV64"));
+                }
+
+                match code.funct3() {
+                    0b000 => Inst::AddiW {
+                        imm: code.imm_i(),
+                        dest: code.rd(),
+                        src1: code.rs1(),
+                    },
+                    // SLLIW
+                    0b001 => {
+                        if code.funct7() != 0 {
+                            return Err(decode_error(code, "SLLIW funct7"));
+                        }
+
+                        Inst::SlliW {
+                            imm: Imm::new_u32(code.rs2_imm()),
+                            dest: code.rd(),
+                            src1: code.rs1(),
+                        }
+                    }
+
+                    0b101 => match code.funct7() {
+                        0b0000000 => Inst::SrliW {
+                            imm: Imm::new_u32(code.rs2_imm()),
+                            dest: code.rd(),
+                            src1: code.rs1(),
+                        },
+                        0b0100000 => Inst::SraiW {
+                            imm: Imm::new_u32(code.rs2_imm()),
+                            dest: code.rd(),
+                            src1: code.rs1(),
+                        },
+                        _ => return Err(decode_error(code, "OP-IMM-32 funct7")),
+                    },
+                    _ => return Err(decode_error(code, "OP-IMM-32 funct3")),
+                }
+            }
             // OP
             0b0110011 => {
                 let (dest, src1, src2) = (code.rd(), code.rs1(), code.rs2());
@@ -1465,6 +1570,7 @@ mod tests {
     use crate::Imm;
     use crate::Inst;
     use crate::Reg;
+    use crate::Xlen;
 
     #[test]
     #[cfg_attr(not(slow_tests), ignore = "cfg(slow_tests) not enabled")]
@@ -1476,9 +1582,20 @@ mod tests {
                 std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
                 std::io::stdout().flush().unwrap();
             }
-            let _ = Inst::decode(i);
+            let _ = Inst::decode(i, Xlen::Rv32);
         }
-        let _ = Inst::decode(u32::MAX);
+        let _ = Inst::decode(u32::MAX, Xlen::Rv32);
+
+        for i in 0..u32::MAX {
+            if (i % (2 << 25)) == 0 {
+                let percent = i as f32 / (u32::MAX as f32);
+                let done = (100.0 * percent) as usize;
+                std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
+                std::io::stdout().flush().unwrap();
+            }
+            let _ = Inst::decode(i, Xlen::Rv64);
+        }
+        let _ = Inst::decode(u32::MAX, Xlen::Rv64);
     }
 
     #[test]
@@ -1591,7 +1708,7 @@ mod tests {
             let start_time = std::time::Instant::now();
 
             let insts = (start..=start.saturating_add(CHUNK_SIZE))
-                .filter_map(|code| Some((code, Inst::decode_normal(code).ok()?)))
+                .filter_map(|code| Some((code, Inst::decode_normal(code, Xlen::Rv32).ok()?)))
                 .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
                 .collect::<Vec<_>>();
 
@@ -1631,7 +1748,7 @@ mod tests {
     #[ignore = "this doesn't quite work yet because there is often a non-canonical encoding"]
     fn compressed_clang_roundtrip() {
         let insts = (0..=u16::MAX)
-            .filter_map(|code| Some((code, Inst::decode_compressed(code).ok()?)))
+            .filter_map(|code| Some((code, Inst::decode_compressed(code, Xlen::Rv32).ok()?)))
             .filter(|(_, inst)| is_compressed_inst_supposed_to_roundtrip(inst))
             .collect::<Vec<_>>();
 
