@@ -900,7 +900,7 @@ impl Inst {
                     src: code.rs2_short(),
                     base: code.rs1_short(),
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "C0 funct3")),
             },
             // C1
             0b01 => match code.funct3() {
@@ -937,7 +937,7 @@ impl Inst {
                         // C.SRLI -> srli \rd', \rd', \imm
                         0b00 => {
                             if bit12 != 0 {
-                                return Err(decode_error(code, "imm"));
+                                return Err(decode_error(code, "C.SRLI imm"));
                             }
 
                             Inst::Srli {
@@ -949,7 +949,7 @@ impl Inst {
                         // C.SRAI -> srai \rd', \rd', \imm
                         0b01 => {
                             if bit12 != 0 {
-                                return Err(decode_error(code, "imm"));
+                                return Err(decode_error(code, "C.SRLI imm"));
                             }
 
                             Inst::Srai {
@@ -966,7 +966,7 @@ impl Inst {
                         },
                         0b11 => {
                             if bit12 != 0 {
-                                return Err(decode_error(code, "bit 12"));
+                                return Err(decode_error(code, "C1 Arith bit 12"));
                             }
                             let funct2 = code.extract(5..=6);
                             match funct2 {
@@ -1032,7 +1032,7 @@ impl Inst {
                         _ => {
                             let uimm = code.immediate_s(&[(2..=6, 12), (12..=12, 17)]);
                             if uimm.as_u32() == 0 {
-                                return Err(decode_error(code, "imm"));
+                                return Err(decode_error(code, "C.LUI imm"));
                             }
                             Inst::Lui {
                                 uimm,
@@ -1065,7 +1065,7 @@ impl Inst {
                     src1: code.rs1_short(),
                     src2: Reg::ZERO,
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "C1 funct3")),
             },
             // C2
             0b10 => match code.funct3() {
@@ -1084,7 +1084,7 @@ impl Inst {
                 0b010 => {
                     let dest = code.rd();
                     if dest.0 == 0 {
-                        return Err(decode_error(code, "rd"));
+                        return Err(decode_error(code, "C.LWSP rd"));
                     }
 
                     Inst::Lw {
@@ -1101,7 +1101,7 @@ impl Inst {
                         // C.JR -> jalr zero, 0(\rs1)
                         (0, _, 0) => {
                             if rd_rs1.0 == 0 {
-                                return Err(decode_error(code, "rs1"));
+                                return Err(decode_error(code, "C.JR rs1"));
                             }
                             Inst::Jalr {
                                 offset: Imm::ZERO,
@@ -1129,7 +1129,7 @@ impl Inst {
                             src1: rd_rs1,
                             src2: rs2,
                         },
-                        _ => return Err(decode_error(code, "inst")),
+                        _ => return Err(decode_error(code, "C2 funct=100 inst")),
                     }
                 }
                 // C.SWSP -> sw \reg \offset(sp)
@@ -1138,7 +1138,7 @@ impl Inst {
                     src: code.rs2(),
                     base: Reg::SP,
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "C2 funct3")),
             },
             _ => return Err(decode_error(code, "instruction is not compressed")),
         };
@@ -1171,7 +1171,7 @@ impl Inst {
                     base: code.rs1(),
                     dest: code.rd(),
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "JALR funct3")),
             },
             // BRANCH
             0b1100011 => match code.funct3() {
@@ -1205,7 +1205,7 @@ impl Inst {
                     src1: code.rs1(),
                     src2: code.rs2(),
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "BRANCH funct3")),
             },
             // LOAD
             0b0000011 => match code.funct3() {
@@ -1234,7 +1234,7 @@ impl Inst {
                     dest: code.rd(),
                     base: code.rs1(),
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "LOAD funct3")),
             },
             // STORE
             0b0100011 => match code.funct3() {
@@ -1253,7 +1253,7 @@ impl Inst {
                     src: code.rs2(),
                     base: code.rs1(),
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "STORE funct3")),
             },
             // OP-IMM
             0b0010011 => match code.funct3() {
@@ -1308,9 +1308,9 @@ impl Inst {
                         dest: code.rd(),
                         src1: code.rs1(),
                     },
-                    _ => return Err(decode_error(code, "funct7")),
+                    _ => return Err(decode_error(code, "OP-IMM funct7")),
                 },
-                _ => return Err(decode_error(code, "funct3")),
+                _ => return Err(decode_error(code, "OP-IMM funct3")),
             },
             // OP
             0b0110011 => {
@@ -1335,7 +1335,7 @@ impl Inst {
                     (0b101, 0b0000001) => Inst::Divu { dest, src1, src2 },
                     (0b110, 0b0000001) => Inst::Rem { dest, src1, src2 },
                     (0b111, 0b0000001) => Inst::Remu { dest, src1, src2 },
-                    _ => return Err(decode_error(code, "funct3/funct7")),
+                    _ => return Err(decode_error(code, "OP funct3/funct7")),
                 }
             }
             // MISC-MEM
@@ -1364,7 +1364,7 @@ impl Inst {
                             src: code.rs1(),
                         },
                     },
-                    _ => return Err(decode_error(code, "funct3")),
+                    _ => return Err(decode_error(code, "MISC-MEM funct3")),
                 }
             }
             // SYSTEM
@@ -1373,25 +1373,25 @@ impl Inst {
                     return Err(decode_error(code, "unimp instruction"));
                 }
                 if code.rd().0 != 0 {
-                    return Err(decode_error(code, "rd"));
+                    return Err(decode_error(code, "SYSTEM rd"));
                 }
                 if code.funct3() != 0 {
-                    return Err(decode_error(code, "funct3"));
+                    return Err(decode_error(code, "SYSTEM funct3"));
                 }
                 if code.rs1().0 != 0 {
-                    return Err(decode_error(code, "rs1"));
+                    return Err(decode_error(code, "SYSTEM rs1"));
                 }
                 match code.imm_i().as_u32() {
                     0b000000000000 => Inst::Ecall,
                     0b000000000001 => Inst::Ebreak,
-                    _ => return Err(decode_error(code, "imm")),
+                    _ => return Err(decode_error(code, "SYSTEM imm")),
                 }
             }
             // AMO
             0b00101111 => {
                 // width must be W
                 if code.funct3() != 0b010 {
-                    return Err(decode_error(code, "funct3"));
+                    return Err(decode_error(code, "AMO width funct3"));
                 }
 
                 let kind = code.extract(27..=31);
@@ -1404,7 +1404,7 @@ impl Inst {
                     // LR
                     0b00010 => {
                         if code.rs2().0 != 0 {
-                            return Err(decode_error(code, "rs2"));
+                            return Err(decode_error(code, "AMO.LR rs2"));
                         }
 
                         Inst::LrW {
@@ -1431,7 +1431,7 @@ impl Inst {
                             0b10100 => AmoOp::Max,
                             0b11000 => AmoOp::Minu,
                             0b11100 => AmoOp::Maxu,
-                            _ => return Err(decode_error(code, "funct7")),
+                            _ => return Err(decode_error(code, "AMO op funct7")),
                         };
                         Inst::AmoW {
                             order,

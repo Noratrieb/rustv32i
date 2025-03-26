@@ -1,7 +1,9 @@
-## 2.0.0
+## 0.2.0
 
 - BREAKING CHANGE: Make `Inst` `#[non_exhaustive]`
 - BREAKING CHANGE: Change immediate fields in `Inst` to `Imm`
+
+- Improve error messages
 
 ## 0.1.1
 
