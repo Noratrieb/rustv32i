@@ -83,25 +83,49 @@ START_TEST
     CASE sll, 2, 1, 4
     CASE sll, 2, 20, 2097152
     CASE sll, 2, 30, 2147483648
-    CASE sll, 2, 31, 0
-    CASER sll, 2, 32, 2 # error for immediate
     CASE sll, 0, 10, 0
     CASE sll, 10, 0, 10
+#ifdef RV32
+    CASE sll, 2, 31, 0
     CASE sll, -1, 31, -2147483648
     CASER sll, -1, 32, -1 # error for immediate
+    CASER sll, 2, 32, 2 # error for immediate
+#elif RV64
+    #CASE_BOTH sllw, slliw, 2, 31, 0
+    #CASE_BOTH sllw, slliw, -1, 31, -2147483648
+    #CASER sllw, -1, 32, -1 # error for immediate
+    #CASER sllw, 2, 32, 2 # error for immediate
+
+    CASE sll, -1, 31, 18446744071562067968
+    CASER sll, 2, 63, 0 # error for immediate
+    CASE sll, -1, 32, 18446744069414584320 # test with immediate as well
+    CASER sll, -1, 63, 9223372036854775808 # error for immediate
+    CASER sll, -1, 64, -1 # error for immediate
+    CASER sll, 2, 64, 2 # error for immediate
+#endif
 
     CASE srl, 4, 1, 2
     CASE srl, 0, 10, 0
     CASE srl, 10, 0, 10
-    CASE srl, -1, 1, 2147483647
     CASE srl, 0b111, 2, 0b001
+#ifdef RV32
+    CASE srl, -1, 1, 2147483647
     CASER srl, -1, 32, -1 # error for immediate
+#elif RV64
+    CASE srl, -1, 1, 9223372036854775807
+    CASE srl, -1, 32, 4294967295
+    CASER srl, -1, 64, -1 # error for immediate
+#endif
 
     CASER sub, 10, 5, 5
     CASER sub, -1, 1, -2
     CASER sub, 1, 2, -1
     CASER sub, -1, -2, 1
+#ifdef RV32
     CASER sub, 0, 4294967295, 1
+#elif RV64
+    CASER sub, 0, 18446744073709551615, 1
+#endif
 
     .macro CASE_SUB a:req, b:req
         CASER sub, \a, \b, \a - \b
@@ -115,7 +139,12 @@ START_TEST
     CASE sra, -1, 1, -1
     CASE sra, -1, 31, -1
     CASE sra, 0b111, 2, 0b001
+#ifdef RV32
     CASER sra, 10, 32, 10 # error for immediate
+#elif RV64
+    CASE sra, 10, 32, 0
+    CASER sra, 10, 64, 10 # error for immediate
+#endif
 
     # M extension
 
@@ -123,7 +152,11 @@ START_TEST
     CASER mul, 10, 0, 0
     CASER mul, 10, 1, 10
     CASER mul, -1, -1, 1
+#ifdef RV32
     CASER mul, 25252566, 5225225, 353909638
+#elif RV64
+    // TODO
+#endif
 
     .macro CASE_MUL a:req, b:req
         CASER mul, \a, \b, \a * \b
@@ -133,11 +166,19 @@ START_TEST
 
     CASER mulh 4, 4, 0
     CASER mulh, -1, -1, 0
+#ifdef RV32
     CASER mulh, 25252566, 5225225, 30722
+#elif RV64
+    // TODO
+#endif
 
     CASER mulhu 4, 4, 0
+#ifdef RV32
     CASER mulhu, -1, -1, 4294967294
     CASER mulhu, 25252566, 5225225, 30722
+#elif RV64
+    // TODO
+#endif
 
     # mulhsu hasn't been implemented yet.
 
@@ -148,21 +189,33 @@ START_TEST
     CASER div, -10, 2, -5
     CASER div, 5, 2, 2
     CASER div, 5, -1, -5
+#ifdef RV32
     CASER div, -2147483648, -1, -1
+#elif RV64
+    // TODO
+#endif
 
     CASER divu, 4, 2, 2
     CASER divu, -1, 1, -1
     CASER divu, 1, 1, 1
     CASER divu, 1, 0, -1
-    CASER divu, -10, 2, 2147483643
     CASER divu, 5, 2, 2
+#ifdef RV32
+    CASER divu, -10, 2, 2147483643
+#elif RV64
+    // TODO
+#endif
 
     CASER rem, 4, 2, 0
     CASER rem, 5, 2, 1
     CASER rem, 5, 0, 5
     CASER rem, -10, 3, -1
     CASER rem, 5, -1, 0
+#ifdef RV32
     CASER rem, -2147483648, -1, 0
+#elif RV64
+    // TODO
+#endif
 
     CASER remu, 4, 2, 0
     CASER remu, 5, 2, 1

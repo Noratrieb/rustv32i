@@ -30,7 +30,7 @@ fn check() -> eyre::Result<()> {
         test_case(tmpdir.path(), &file, name, 32, "rv32ima")?;
         test_case(tmpdir.path(), &file, name, 32, "rv32imac")?;
 
-        // test_case(tmpdir.path(), &file, name, 64, "rv64ima")?;
+        test_case(tmpdir.path(), &file, name, 64, "rv64ima")?;
         // test_case(tmpdir.path(), &file, name, 64, "rv64imac")?;
     }
 
@@ -70,7 +70,7 @@ fn test_case(
             }
         }),
         Box::new(|_, xreg| {
-            if xreg[Reg::A7.0 as usize] == u32::MAX as u64 {
+            if xreg[Reg::A7.0 as usize] == u64::MAX {
                 if xreg[Reg::A0.0 as usize] == 1 {
                     Err(rustv32i::emu::Status::Exit { code: 0 })
                 } else {
@@ -101,6 +101,7 @@ fn build(tmpdir: &Path, src: &Path, size: u8, march: &str) -> eyre::Result<PathB
     cmd.arg(src);
     cmd.arg("-o");
     cmd.arg(&out_path);
+    cmd.arg(format!("-DRV{size}"));
 
     let output = cmd.output().wrap_err("failed to spawn clang")?;
     if !output.status.success() {

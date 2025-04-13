@@ -274,10 +274,16 @@ pub enum Inst {
 
     /// Add
     Add { dest: Reg, src1: Reg, src2: Reg },
+    /// Add 32-bit (**RV64 only**)
+    AddW { dest: Reg, src1: Reg, src2: Reg },
     /// Subtract
     Sub { dest: Reg, src1: Reg, src2: Reg },
+    /// Subtract 32-bit (**RV64 only**)
+    SubW { dest: Reg, src1: Reg, src2: Reg },
     /// Shift Left Logical
     Sll { dest: Reg, src1: Reg, src2: Reg },
+    /// Shift Left Logical 32-bit (**RV64 only**)
+    SllW { dest: Reg, src1: Reg, src2: Reg },
     /// Set Less Than (signed)
     Slt { dest: Reg, src1: Reg, src2: Reg },
     /// Set Less Than Unsigned
@@ -286,8 +292,12 @@ pub enum Inst {
     Xor { dest: Reg, src1: Reg, src2: Reg },
     /// Shift Right Logical (unsigned)
     Srl { dest: Reg, src1: Reg, src2: Reg },
+    /// Shift Right Logical (unsigned) 32-bit (**RV64 only**)
+    SrlW { dest: Reg, src1: Reg, src2: Reg },
     /// Shift Right Arithmetic (unsigned)
     Sra { dest: Reg, src1: Reg, src2: Reg },
+    /// Shift Right Arithmetic (unsigned) 32-bit (**RV64 only**)
+    SraW { dest: Reg, src1: Reg, src2: Reg },
     /// OR
     Or { dest: Reg, src1: Reg, src2: Reg },
     /// AND
@@ -303,6 +313,8 @@ pub enum Inst {
     // ------------- M extension -------------
     /// Multiply
     Mul { dest: Reg, src1: Reg, src2: Reg },
+    /// Multiply 32-bit (**RV64 only**)
+    MulW { dest: Reg, src1: Reg, src2: Reg },
     /// Mul Upper Half Signed-Signed
     Mulh { dest: Reg, src1: Reg, src2: Reg },
     /// Mul Upper Half Signed-Unsigned
@@ -311,12 +323,20 @@ pub enum Inst {
     Mulhu { dest: Reg, src1: Reg, src2: Reg },
     /// Divide (signed)
     Div { dest: Reg, src1: Reg, src2: Reg },
+    /// Divide (signed) 32-bit (**RV64 only**)
+    DivW { dest: Reg, src1: Reg, src2: Reg },
     /// Divide Unsigned
     Divu { dest: Reg, src1: Reg, src2: Reg },
+    /// Divide Unsigned 32-bit (**RV64 only**)
+    DivuW { dest: Reg, src1: Reg, src2: Reg },
     /// Remainder (signed)
     Rem { dest: Reg, src1: Reg, src2: Reg },
+    /// Remainder (signed) 32-bit (**RV64 only**)
+    RemW { dest: Reg, src1: Reg, src2: Reg },
     /// Remainder Unsigned
     Remu { dest: Reg, src1: Reg, src2: Reg },
+    /// Remainder Unsigned 32-bit (**RV64 only**)
+    RemuW { dest: Reg, src1: Reg, src2: Reg },
 
     // ------------- A extension -------------
     /// Load-Reserved Word
@@ -545,7 +565,7 @@ impl Display for Inst {
                 if imm.as_u32() == 0 {
                     write!(f, "sext.w {dest}, {src1}")
                 } else {
-                    write!(f, "addi.w {dest}, {src1}, {}", imm.as_i32())
+                    write!(f, "addiw {dest}, {src1}, {}", imm.as_i32())
                 }
             }
             Inst::Slti {
@@ -606,13 +626,20 @@ impl Display for Inst {
             Inst::Add { dest, src1, src2 } => {
                 write!(f, "add {dest}, {src1}, {src2}")
             }
+            Inst::AddW { dest, src1, src2 } => {
+                write!(f, "addw {dest}, {src1}, {src2}")
+            }
             Inst::Sub { dest, src1, src2 } => write!(f, "sub {dest}, {src1}, {src2}"),
+            Inst::SubW { dest, src1, src2 } => write!(f, "subw {dest}, {src1}, {src2}"),
             Inst::Sll { dest, src1, src2 } => write!(f, "sll {dest}, {src1}, {src2}"),
+            Inst::SllW { dest, src1, src2 } => write!(f, "sllw {dest}, {src1}, {src2}"),
             Inst::Slt { dest, src1, src2 } => write!(f, "slt {dest}, {src1}, {src2}"),
             Inst::Sltu { dest, src1, src2 } => write!(f, "sltu {dest}, {src1}, {src2}"),
             Inst::Xor { dest, src1, src2 } => write!(f, "xor {dest}, {src1}, {src2}"),
             Inst::Srl { dest, src1, src2 } => write!(f, "srl {dest}, {src1}, {src2}"),
+            Inst::SrlW { dest, src1, src2 } => write!(f, "srlw {dest}, {src1}, {src2}"),
             Inst::Sra { dest, src1, src2 } => write!(f, "sra {dest}, {src1}, {src2}"),
+            Inst::SraW { dest, src1, src2 } => write!(f, "sraw {dest}, {src1}, {src2}"),
             Inst::Or { dest, src1, src2 } => write!(f, "or {dest}, {src1}, {src2}"),
             Inst::And { dest, src1, src2 } => write!(f, "and {dest}, {src1}, {src2}"),
             Inst::Fence { fence } => match fence.fm {
@@ -625,13 +652,18 @@ impl Display for Inst {
             Inst::Ecall => write!(f, "ecall"),
             Inst::Ebreak => write!(f, "ebreak"),
             Inst::Mul { dest, src1, src2 } => write!(f, "mul {dest}, {src1}, {src2}"),
+            Inst::MulW { dest, src1, src2 } => write!(f, "mulw {dest}, {src1}, {src2}"),
             Inst::Mulh { dest, src1, src2 } => write!(f, "mulh {dest}, {src1}, {src2}"),
             Inst::Mulhsu { dest, src1, src2 } => write!(f, "mulhsu {dest}, {src1}, {src2}"),
             Inst::Mulhu { dest, src1, src2 } => write!(f, "mulhu {dest}, {src1}, {src2}"),
             Inst::Div { dest, src1, src2 } => write!(f, "div {dest}, {src1}, {src2}"),
+            Inst::DivW { dest, src1, src2 } => write!(f, "divw {dest}, {src1}, {src2}"),
             Inst::Divu { dest, src1, src2 } => write!(f, "divu {dest}, {src1}, {src2}"),
+            Inst::DivuW { dest, src1, src2 } => write!(f, "divuw {dest}, {src1}, {src2}"),
             Inst::Rem { dest, src1, src2 } => write!(f, "rem {dest}, {src1}, {src2}"),
+            Inst::RemW { dest, src1, src2 } => write!(f, "remw {dest}, {src1}, {src2}"),
             Inst::Remu { dest, src1, src2 } => write!(f, "remu {dest}, {src1}, {src2}"),
+            Inst::RemuW { dest, src1, src2 } => write!(f, "remuw {dest}, {src1}, {src2}"),
             Inst::LrW { order, dest, addr } => write!(f, "lr.w{order} {dest}, ({addr})",),
             Inst::ScW {
                 order,
@@ -737,14 +769,6 @@ impl InstCode {
         let end_span = 32 - (range.end() + 1);
         (self.0 << (end_span)) >> (end_span + range.start())
     }
-    fn immediate_u(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
-        let mut imm = 0;
-        for (from, to) in mappings {
-            let value = self.extract(from.clone());
-            imm |= value << to;
-        }
-        Imm::new_u32(imm)
-    }
     fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
         let mut size = 0;
@@ -775,6 +799,10 @@ impl InstCode {
     fn rs2_imm(self) -> u32 {
         self.extract(20..=24)
     }
+    // shifts on RV64 have one extra bit
+    fn rs2_imm_plus(self) -> u32 {
+        self.extract(20..=25)
+    }
     fn rd(self) -> Reg {
         Reg(self.extract(7..=11) as u8)
     }
@@ -788,7 +816,8 @@ impl InstCode {
         self.immediate_s(&[(31..=31, 12), (7..=7, 11), (25..=30, 5), (8..=11, 1)])
     }
     fn imm_u(self) -> Imm {
-        self.immediate_u(&[(12..=31, 12)])
+        // Don't be fooled by the "u", LUI/AUIPC immediates are sign-extended on RV64.
+        self.immediate_s(&[(12..=31, 12)])
     }
     fn imm_j(self) -> Imm {
         self.immediate_s(&[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)])
@@ -1096,7 +1125,7 @@ impl Inst {
                         _ => {
                             let uimm = code.immediate_s(&[(2..=6, 12), (12..=12, 17)]);
                             if uimm.as_u32() == 0 {
-                                return Err(decode_error(code, "C.LUI imm"));
+                                return Err(decode_error(code, "C.LUI zero immediate"));
                             }
                             Inst::Lui {
                                 uimm,
@@ -1352,7 +1381,13 @@ impl Inst {
                     src1: code.rs1(),
                 },
                 0b001 => {
-                    if code.funct7() != 0 {
+                    // For RV32, bit 25 must be zero as well.
+                    let left_zeroes = code.funct7()
+                        >> match xlen {
+                            Xlen::Rv32 => 0,
+                            Xlen::Rv64 => 1,
+                        };
+                    if left_zeroes != 0 {
                         return Err(decode_error(code, "slli shift overflow"));
                     }
                     Inst::Slli {
@@ -1361,24 +1396,42 @@ impl Inst {
                         src1: code.rs1(),
                     }
                 }
-                0b101 => match code.funct7() {
-                    0b0000000 => Inst::Srli {
-                        imm: Imm::new_u32(code.rs2_imm()),
-                        dest: code.rd(),
-                        src1: code.rs1(),
+                0b101 => match xlen {
+                    Xlen::Rv32 => match code.funct7() {
+                        0b0000000 => Inst::Srli {
+                            imm: Imm::new_u32(code.rs2_imm()),
+                            dest: code.rd(),
+                            src1: code.rs1(),
+                        },
+                        0b0100000 => Inst::Srai {
+                            imm: Imm::new_u32(code.rs2_imm()),
+                            dest: code.rd(),
+                            src1: code.rs1(),
+                        },
+                        _ => return Err(decode_error(code, "srli shift overflow")),
                     },
-                    0b0100000 => Inst::Srai {
-                        imm: Imm::new_u32(code.rs2_imm()),
-                        dest: code.rd(),
-                        src1: code.rs1(),
-                    },
-                    _ => return Err(decode_error(code, "OP-IMM funct7")),
+                    Xlen::Rv64 => {
+                        let upper = code.funct7() >> 1;
+                        match upper {
+                            0b010000 => Inst::Srai {
+                                imm: Imm::new_u32(code.rs2_imm_plus()),
+                                dest: code.rd(),
+                                src1: code.rs1(),
+                            },
+                            0b000000 => Inst::Srli {
+                                imm: Imm::new_u32(code.rs2_imm_plus()),
+                                dest: code.rd(),
+                                src1: code.rs1(),
+                            },
+                            _ => return Err(decode_error(code, "srai/srli upper bits")),
+                        }
+                    }
                 },
                 _ => return Err(decode_error(code, "OP-IMM funct3")),
             },
             // OP-IMM-32
             0b0011011 => {
-                if !xlen.is_64() {
+                if xlen.is_32() {
                     return Err(decode_error(code, "OP-IMM-32 only on RV64"));
                 }
 
@@ -1441,6 +1494,28 @@ impl Inst {
                     (0b110, 0b0000001) => Inst::Rem { dest, src1, src2 },
                     (0b111, 0b0000001) => Inst::Remu { dest, src1, src2 },
                     _ => return Err(decode_error(code, "OP funct3/funct7")),
+                }
+            }
+            // OP-32
+            0b0111011 => {
+                if xlen.is_32() {
+                    return Err(decode_error(code, "OP-IMM-32 only on RV64"));
+                }
+
+                let (dest, src1, src2) = (code.rd(), code.rs1(), code.rs2());
+                match (code.funct3(), code.funct7()) {
+                    (0b000, 0b0000000) => Inst::AddW { dest, src1, src2 },
+                    (0b000, 0b0100000) => Inst::SubW { dest, src1, src2 },
+                    (0b001, 0b0000000) => Inst::SllW { dest, src1, src2 },
+                    (0b101, 0b0000000) => Inst::SrlW { dest, src1, src2 },
+                    (0b101, 0b0100000) => Inst::SraW { dest, src1, src2 },
+
+                    (0b000, 0b0000001) => Inst::MulW { dest, src1, src2 },
+                    (0b100, 0b0000001) => Inst::DivW { dest, src1, src2 },
+                    (0b101, 0b0000001) => Inst::DivuW { dest, src1, src2 },
+                    (0b110, 0b0000001) => Inst::RemW { dest, src1, src2 },
+                    (0b111, 0b0000001) => Inst::RemuW { dest, src1, src2 },
+                    _ => return Err(decode_error(code, "OP-32 funct3/funct7")),
                 }
             }
             // MISC-MEM
@@ -1713,47 +1788,45 @@ mod tests {
         let start_time = std::time::Instant::now();
         let completed = AtomicU32::new(0);
 
-        chunks
-            .par_iter()
-            .for_each(|&start| {
-                let insts = (start..=start.saturating_add(CHUNK_SIZE))
-                    .filter_map(|code| Some((code, Inst::decode_normal(code, Xlen::Rv32).ok()?)))
-                    .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
-                    .collect::<Vec<_>>();
+        chunks.par_iter().for_each(|&start| {
+            let insts = (start..=start.saturating_add(CHUNK_SIZE))
+                .filter_map(|code| Some((code, Inst::decode_normal(code, Xlen::Rv32).ok()?)))
+                .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
+                .collect::<Vec<_>>();
 
-                let mut text =
-                    std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
-                for (_, inst) in &insts {
-                    writeln!(text, "  {inst}").unwrap();
-                }
+            let mut text = std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
+            for (_, inst) in &insts {
+                writeln!(text, "  {inst}").unwrap();
+            }
 
-                let data = clang_assemble(&text, "-march=rv32ima_zihintpause");
+            let data = clang_assemble(&text, "-march=rv32ima_zihintpause");
 
-                for (i, result_code) in data.chunks(4).enumerate() {
-                    let result_code = u32::from_le_bytes(result_code.try_into().unwrap());
+            for (i, result_code) in data.chunks(4).enumerate() {
+                let result_code = u32::from_le_bytes(result_code.try_into().unwrap());
 
-                    assert_eq!(
-                        insts[i].0, result_code,
-                        "failed to rountrip!\n\
+                assert_eq!(
+                    insts[i].0, result_code,
+                    "failed to rountrip!\n\
                      instruction `{:0>32b}` failed to rountrip\n\
                      resulted in `{:0>32b}` instead.\n\
                      disassembly of original instruction: `{}`",
-                        insts[i].0, result_code, insts[i].1
-                    );
-                }
+                    insts[i].0, result_code, insts[i].1
+                );
+            }
 
-                let already_completed = completed.fetch_add(1, Ordering::Relaxed);
-                let already_elapsed = start_time.elapsed();
+            let already_completed = completed.fetch_add(1, Ordering::Relaxed);
+            let already_elapsed = start_time.elapsed();
 
-                let remaining_chunks = CHUNKS.saturating_sub(already_completed);
-                let remaining = already_elapsed / std::cmp::max(already_completed, 1) * remaining_chunks;
+            let remaining_chunks = CHUNKS.saturating_sub(already_completed);
+            let remaining =
+                already_elapsed / std::cmp::max(already_completed, 1) * remaining_chunks;
 
-                writeln!(
-                    std::io::stdout(),
-                    "Completed chunk {already_completed}/{CHUNKS} (estimated {remaining:?} remaining)",
-                )
-                .unwrap();
-            });
+            writeln!(
+                std::io::stdout(),
+                "Completed chunk {already_completed}/{CHUNKS} (estimated {remaining:?} remaining)",
+            )
+            .unwrap();
+        });
     }
 
     #[test]

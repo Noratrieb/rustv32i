@@ -386,8 +386,33 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Srli { imm, dest, src1 } => self[dest] = self[src1].unsigned_shr(imm.as_u32()),
             Inst::Srai { imm, dest, src1 } => self[dest] = self[src1].signed_shr(imm.as_u32()),
             Inst::Add { dest, src1, src2 } => self[dest] = self[src1].add(self[src2]),
+            Inst::AddW { dest, src1, src2 } => {
+                self[dest] = XLEN::switch2(
+                    self[src1],
+                    self[src2],
+                    |_, _| unreachable!(),
+                    |a, b| (a as u32).add(b as u32) as i32 as i64 as u64,
+                );
+            }
             Inst::Sub { dest, src1, src2 } => self[dest] = self[src1].sub(self[src2]),
-            Inst::Sll { dest, src1, src2 } => self[dest] = self[src1].shl(self[src2].truncate32()),
+            Inst::SubW { dest, src1, src2 } => {
+                self[dest] = XLEN::switch2(
+                    self[src1],
+                    self[src2],
+                    |_, _| unreachable!(),
+                    |a, b| (a as u32).sub(b as u32) as i32 as i64 as u64,
+                );
+            }
+            Inst::Sll { dest, src1, src2 } => {
+                self[dest] = self[src1].shl(self[src2].truncate32());
+            }
+            Inst::SllW { dest, src1, src2 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |a| (a as u32).shl(self[src2].truncate32()) as i32 as i64 as u64,
+                );
+            }
             Inst::Slt { dest, src1, src2 } => {
                 self[dest] = XLEN::from_bool(self[src1].signed_lt(self[src2]));
             }
@@ -398,8 +423,22 @@ impl<XLEN: XLen> Emulator<XLEN> {
             Inst::Srl { dest, src1, src2 } => {
                 self[dest] = self[src1].unsigned_shr(self[src2].truncate32())
             }
+            Inst::SrlW { dest, src1, src2 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |a| (a as u32).unsigned_shr(self[src2].truncate32()) as i32 as i64 as u64,
+                );
+            }
             Inst::Sra { dest, src1, src2 } => {
                 self[dest] = self[src1].signed_shr(self[src2].truncate32())
+            }
+            Inst::SraW { dest, src1, src2 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |a| (a as u32).unsigned_shr(self[src2].truncate32()) as i32 as i64 as u64,
+                );
             }
             Inst::Or { dest, src1, src2 } => self[dest] = self[src1].or(self[src2]),
             Inst::And { dest, src1, src2 } => self[dest] = self[src1].and(self[src2]),
@@ -502,7 +541,40 @@ impl<XLEN: XLen> Emulator<XLEN> {
                 }
                 self.reservation_set = None;
             }
-            _ => return Err(Status::UnsupportedInst(inst)),
+            Inst::AddiW { imm, dest, src1 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |src| ((src as u32).wrapping_add(imm.as_u32())) as i32 as i64 as u64,
+                );
+            }
+            Inst::SlliW { imm, dest, src1 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |src| ((src as u32).shl(imm.as_u32())) as u64,
+                );
+            }
+            Inst::SrliW { imm, dest, src1 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |src| ((src as u32).unsigned_shr(imm.as_u32())) as u64,
+                );
+            }
+            Inst::SraiW { imm, dest, src1 } => {
+                self[dest] = XLEN::switch(
+                    self[src1],
+                    |_| unreachable!(),
+                    |src| ((src as u32).signed_shr(imm.as_u32())) as u64,
+                );
+            }
+            Inst::MulW { dest, src1, src2 } => todo!(),
+            Inst::DivW { dest, src1, src2 } => todo!(),
+            Inst::DivuW { dest, src1, src2 } => todo!(),
+            Inst::RemW { dest, src1, src2 } => todo!(),
+            Inst::RemuW { dest, src1, src2 } => todo!(),
+            _ => todo!(),
         }
 
         if !jumped {
@@ -676,7 +748,7 @@ impl<XLEN: XLen> Emulator<XLEN> {
     }
 }
 
-pub trait XLen: Copy + PartialEq + Eq {
+pub trait XLen: Copy + PartialEq + Eq + Debug {
     type Signed;
     type NextUnsigned;
     type NextSigned;
@@ -687,7 +759,15 @@ pub trait XLen: Copy + PartialEq + Eq {
     const SIGNED_MIN: Self;
     const MAX: Self;
 
-    fn switch<R>(self, on_32: impl FnOnce(u32) -> R, on_64: impl FnOnce(u64) -> R) -> R;
+    const IS_64: bool = matches!(Self::XLEN, rvdc::Xlen::Rv64);
+
+    fn switch(self, on_32: impl FnOnce(u32) -> u32, on_64: impl FnOnce(u64) -> u64) -> Self;
+    fn switch2(
+        self,
+        other: Self,
+        on_32: impl FnOnce(u32, u32) -> u32,
+        on_64: impl FnOnce(u64, u64) -> u64,
+    ) -> Self;
 
     fn from_bool(v: bool) -> Self {
         Self::from_32_z(v as u32)
@@ -839,8 +919,16 @@ impl XLen for u32 {
 
     const XLEN: rvdc::Xlen = rvdc::Xlen::Rv32;
 
-    fn switch<R>(self, on_32: impl FnOnce(u32) -> R, _: impl FnOnce(u64) -> R) -> R {
+    fn switch(self, on_32: impl FnOnce(u32) -> u32, _: impl FnOnce(u64) -> u64) -> Self {
         on_32(self)
+    }
+    fn switch2(
+        self,
+        other: Self,
+        on_32: impl FnOnce(u32, u32) -> u32,
+        _: impl FnOnce(u64, u64) -> u64,
+    ) -> Self {
+        on_32(self, other)
     }
 
     fn from_32_s(v: u32) -> Self {
@@ -863,8 +951,16 @@ impl XLen for u64 {
 
     const XLEN: rvdc::Xlen = rvdc::Xlen::Rv64;
 
-    fn switch<R>(self, _: impl FnOnce(u32) -> R, on_64: impl FnOnce(u64) -> R) -> R {
+    fn switch(self, _: impl FnOnce(u32) -> u32, on_64: impl FnOnce(u64) -> u64) -> Self {
         on_64(self)
+    }
+    fn switch2(
+        self,
+        other: Self,
+        _: impl FnOnce(u32, u32) -> u32,
+        on_64: impl FnOnce(u64, u64) -> u64,
+    ) -> Self {
+        on_64(self, other)
     }
 
     fn from_32_s(v: u32) -> Self {
