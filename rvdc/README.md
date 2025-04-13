@@ -38,7 +38,7 @@ More extensions may be implemented in the future.
 let x = 0x1101_u32;
 let expected = rvdc::Inst::Addi { imm: rvdc::Imm::new_i32(-0x20), dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
 
-let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
+let (inst, is_compressed) = rvdc::Inst::decode(x, rvdc::Xlen::Rv32).unwrap();
 assert_eq!(inst, expected);
 assert_eq!(is_compressed, rvdc::IsCompressed::Yes);
 assert_eq!(format!("{inst}"), "addi sp, sp, -32")
@@ -49,7 +49,7 @@ assert_eq!(format!("{inst}"), "addi sp, sp, -32")
 let x = 0x0000a317;
 let expected = rvdc::Inst::Auipc { uimm: rvdc::Imm::new_u32(0xa << 12), dest: rvdc::Reg::T1 };
 
-let (inst, is_compressed) = rvdc::Inst::decode(x).unwrap();
+let (inst, is_compressed) = rvdc::Inst::decode(x, rvdc::Xlen::Rv32).unwrap();
 assert_eq!(inst, expected);
 assert_eq!(is_compressed, rvdc::IsCompressed::No);
 assert_eq!(format!("{inst}"), "auipc t1, 10")

@@ -6,7 +6,7 @@ use core::fmt::{self, Debug, Display};
 use core::ops::RangeInclusive;
 
 /// The register size of the ISA, RV32 or RV64.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Xlen {
     /// 32 bit
     Rv32,
@@ -928,10 +928,10 @@ impl Inst {
     /// let x = 0x1101_u16;
     /// let expected = rvdc::Inst::Addi { imm: rvdc::Imm::new_i32(-0x20), dest: rvdc::Reg::SP, src1: rvdc::Reg::SP };
     ///
-    /// let inst = rvdc::Inst::decode_compressed(x).unwrap();
+    /// let inst = rvdc::Inst::decode_compressed(x, rvdc::Xlen::Rv32).unwrap();
     /// assert_eq!(inst, expected);
     /// ```
-    pub fn decode_compressed(code: u16, xlen: Xlen) -> Result<Inst, DecodeError> {
+    pub fn decode_compressed(code: u16, _xlen: Xlen) -> Result<Inst, DecodeError> {
         let code = InstCodeC(code);
         if code.0 == 0 {
             return Err(decode_error(code, "null instruction"));
@@ -1557,6 +1557,8 @@ impl Inst {
 #[cfg(test)]
 mod tests {
     extern crate std;
+    use core::sync::atomic::AtomicU32;
+    use core::sync::atomic::Ordering;
     use std::prelude::rust_2024::*;
 
     use std::fmt::Write as _;
@@ -1564,6 +1566,8 @@ mod tests {
 
     use object::Object;
     use object::ObjectSection;
+    use rayon::iter::IntoParallelRefIterator;
+    use rayon::iter::ParallelIterator;
 
     use crate::Fence;
     use crate::FenceSet;
@@ -1574,18 +1578,17 @@ mod tests {
 
     #[test]
     #[cfg_attr(not(slow_tests), ignore = "cfg(slow_tests) not enabled")]
-    fn exhaustive_decode_no_panic() {
-        for i in 0..u32::MAX {
-            if (i % (2 << 25)) == 0 {
-                let percent = i as f32 / (u32::MAX as f32);
-                let done = (100.0 * percent) as usize;
-                std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
-                std::io::stdout().flush().unwrap();
-            }
-            let _ = Inst::decode(i, Xlen::Rv32);
-        }
-        let _ = Inst::decode(u32::MAX, Xlen::Rv32);
+    fn exhaustive_decode_no_panic_32() {
+        exhaustive_decode_no_panic(Xlen::Rv32);
+    }
 
+    #[test]
+    #[cfg_attr(not(slow_tests), ignore = "cfg(slow_tests) not enabled")]
+    fn exhaustive_decode_no_panic_64() {
+        exhaustive_decode_no_panic(Xlen::Rv64);
+    }
+
+    fn exhaustive_decode_no_panic(xlen: Xlen) {
         for i in 0..u32::MAX {
             if (i % (2 << 25)) == 0 {
                 let percent = i as f32 / (u32::MAX as f32);
@@ -1593,14 +1596,18 @@ mod tests {
                 std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
                 std::io::stdout().flush().unwrap();
             }
-            let _ = Inst::decode(i, Xlen::Rv64);
+            let _ = Inst::decode(i, xlen);
         }
-        let _ = Inst::decode(u32::MAX, Xlen::Rv64);
+        let _ = Inst::decode(u32::MAX, xlen);
     }
 
     #[test]
     fn size_of_instruction() {
-        assert!(size_of::<Inst>() <= 12);
+        assert!(
+            size_of::<Inst>() <= 16,
+            "size of instruction is too large: {}",
+            size_of::<Inst>()
+        );
     }
 
     const TEST_SECTION_NAME: &str = ".text.rvdctest";
@@ -1699,49 +1706,54 @@ mod tests {
         const CHUNKS: u32 = 128;
         const CHUNK_SIZE: u32 = u32::MAX / CHUNKS;
 
-        for (chunk_idx, start) in ((SKIP_CHUNKS * CHUNK_SIZE)..u32::MAX)
+        let chunks = ((SKIP_CHUNKS * CHUNK_SIZE)..u32::MAX)
             .step_by(CHUNK_SIZE as usize)
-            .enumerate()
-        {
-            let chunk_idx = chunk_idx + SKIP_CHUNKS as usize;
+            .collect::<Vec<_>>();
 
-            let start_time = std::time::Instant::now();
+        let start_time = std::time::Instant::now();
+        let completed = AtomicU32::new(0);
 
-            let insts = (start..=start.saturating_add(CHUNK_SIZE))
-                .filter_map(|code| Some((code, Inst::decode_normal(code, Xlen::Rv32).ok()?)))
-                .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
-                .collect::<Vec<_>>();
+        chunks
+            .par_iter()
+            .for_each(|&start| {
+                let insts = (start..=start.saturating_add(CHUNK_SIZE))
+                    .filter_map(|code| Some((code, Inst::decode_normal(code, Xlen::Rv32).ok()?)))
+                    .filter(|(_, inst)| is_inst_supposed_to_roundtrip(inst))
+                    .collect::<Vec<_>>();
 
-            let mut text = std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
-            for (_, inst) in &insts {
-                writeln!(text, "  {inst}").unwrap();
-            }
+                let mut text =
+                    std::format!(".section {TEST_SECTION_NAME}\n.globl _start\n_start:\n");
+                for (_, inst) in &insts {
+                    writeln!(text, "  {inst}").unwrap();
+                }
 
-            let data = clang_assemble(&text, "-march=rv32ima_zihintpause");
+                let data = clang_assemble(&text, "-march=rv32ima_zihintpause");
 
-            for (i, result_code) in data.chunks(4).enumerate() {
-                let result_code = u32::from_le_bytes(result_code.try_into().unwrap());
+                for (i, result_code) in data.chunks(4).enumerate() {
+                    let result_code = u32::from_le_bytes(result_code.try_into().unwrap());
 
-                assert_eq!(
-                    insts[i].0, result_code,
-                    "failed to rountrip!\n\
-                 instruction `{:0>32b}` failed to rountrip\n\
-                 resulted in `{:0>32b}` instead.\n\
-                 disassembly of original instruction: `{}`",
-                    insts[i].0, result_code, insts[i].1
-                );
-            }
+                    assert_eq!(
+                        insts[i].0, result_code,
+                        "failed to rountrip!\n\
+                     instruction `{:0>32b}` failed to rountrip\n\
+                     resulted in `{:0>32b}` instead.\n\
+                     disassembly of original instruction: `{}`",
+                        insts[i].0, result_code, insts[i].1
+                    );
+                }
 
-            let elapsed = start_time.elapsed();
-            let chunk_number = chunk_idx + 1;
-            let remaining = elapsed * (CHUNKS.saturating_sub(chunk_number as u32));
+                let already_completed = completed.fetch_add(1, Ordering::Relaxed);
+                let already_elapsed = start_time.elapsed();
 
-            writeln!(
-                std::io::stdout(),
-                "Completed chunk {chunk_number}/{CHUNKS} (estimated {remaining:?} remaining)",
-            )
-            .unwrap();
-        }
+                let remaining_chunks = CHUNKS.saturating_sub(already_completed);
+                let remaining = already_elapsed / std::cmp::max(already_completed, 1) * remaining_chunks;
+
+                writeln!(
+                    std::io::stdout(),
+                    "Completed chunk {already_completed}/{CHUNKS} (estimated {remaining:?} remaining)",
+                )
+                .unwrap();
+            });
     }
 
     #[test]

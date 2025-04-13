@@ -15,4 +15,5 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(slow_tests)'] }
 
 [dev-dependencies]
 object = "0.36.7"
+rayon = "1.10.0"
 tempfile = "3.19.1"
