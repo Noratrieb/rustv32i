@@ -235,8 +235,13 @@ pub enum Inst {
     Lh { offset: Imm, dest: Reg, base: Reg },
     /// Load Unsigned Half (zero-ext)
     Lhu { offset: Imm, dest: Reg, base: Reg },
-    /// Load Word
+    /// Load Word (on RV64: sign-ext)
     Lw { offset: Imm, dest: Reg, base: Reg },
+    /// Load Word (zero-ext) (**RV64 only**)
+    Lwu { offset: Imm, dest: Reg, base: Reg },
+    /// Load Doubleword (**RV64 only**)
+    Ld { offset: Imm, dest: Reg, base: Reg },
+
 
     /// Store Byte
     Sb { offset: Imm, src: Reg, base: Reg },
@@ -244,6 +249,8 @@ pub enum Inst {
     Sh { offset: Imm, src: Reg, base: Reg },
     /// Store Word
     Sw { offset: Imm, src: Reg, base: Reg },
+    /// Store Doubleword (**RV64 only**)
+    Sd { offset: Imm, src: Reg, base: Reg },
 
     /// Add Immediate
     Addi { imm: Imm, dest: Reg, src1: Reg },
@@ -547,9 +554,14 @@ impl Display for Inst {
                 write!(f, "lhu {dest}, {}({base})", offset.as_i32())
             }
             Inst::Lw { offset, dest, base } => write!(f, "lw {dest}, {}({base})", offset.as_i32()),
+            Inst::Lwu { offset, dest, base } => {
+                write!(f, "lwu {dest}, {}({base})", offset.as_i32())
+            }
+            Inst::Ld { offset, dest, base } => write!(f, "ld {dest}, {}({base})", offset.as_i32()),
             Inst::Sb { offset, src, base } => write!(f, "sb {src}, {}({base})", offset.as_i32()),
             Inst::Sh { offset, src, base } => write!(f, "sh {src}, {}({base})", offset.as_i32()),
             Inst::Sw { offset, src, base } => write!(f, "sw {src}, {}({base})", offset.as_i32()),
+            Inst::Sd { offset, src, base } => write!(f, "sd {src}, {}({base})", offset.as_i32()),
             Inst::Addi { imm, dest, src1 } => {
                 if dest.0 == 0 && src1.0 == 0 && imm.as_u32() == 0 {
                     write!(f, "nop")
@@ -960,7 +972,7 @@ impl Inst {
     /// let inst = rvdc::Inst::decode_compressed(x, rvdc::Xlen::Rv32).unwrap();
     /// assert_eq!(inst, expected);
     /// ```
-    pub fn decode_compressed(code: u16, _xlen: Xlen) -> Result<Inst, DecodeError> {
+    pub fn decode_compressed(code: u16, xlen: Xlen) -> Result<Inst, DecodeError> {
         let code = InstCodeC(code);
         if code.0 == 0 {
             return Err(decode_error(code, "null instruction"));
@@ -1177,10 +1189,27 @@ impl Inst {
                 0b010 => {
                     let dest = code.rd();
                     if dest.0 == 0 {
-                        return Err(decode_error(code, "C.LWSP rd"));
+                        return Err(decode_error(code, "C.LWSP rd must not be zero"));
                     }
 
                     Inst::Lw {
+                        offset: code.immediate_u(&[(12..=12, 5), (4..=6, 2), (2..=3, 6)]),
+                        dest,
+                        base: Reg::SP,
+                    }
+                }
+
+                // C.LDSP -> ld \reg \offset(sp)
+                0b011 => {
+                    if xlen.is_32() {
+                        return Err(decode_error(code, "C.LDSP is not allowed on RV32"));
+                    }
+                    let dest = code.rd();
+                    if dest.0 == 0 {
+                        return Err(decode_error(code, "C.LWSP rd must not be zero"));
+                    }
+
+                    Inst::Ld {
                         offset: code.immediate_u(&[(12..=12, 5), (4..=6, 2), (2..=3, 6)]),
                         dest,
                         base: Reg::SP,
@@ -1194,7 +1223,7 @@ impl Inst {
                         // C.JR -> jalr zero, 0(\rs1)
                         (0, _, 0) => {
                             if rd_rs1.0 == 0 {
-                                return Err(decode_error(code, "C.JR rs1"));
+                                return Err(decode_error(code, "C.JR rs1 must not be zero"));
                             }
                             Inst::Jalr {
                                 offset: Imm::ZERO,
@@ -1231,6 +1260,17 @@ impl Inst {
                     src: code.rs2(),
                     base: Reg::SP,
                 },
+                // C.SDSP -> sd \reg \offset(sp)
+                0b111 => {
+                    if xlen.is_32() {
+                        return Err(decode_error(code, "C.SDSP is not allowed on RV32"));
+                    }
+                    Inst::Sd {
+                        offset: code.immediate_u(&[(7..=9, 6), (10..=12, 3)]),
+                        src: code.rs2(),
+                        base: Reg::SP,
+                    }
+                }
                 _ => return Err(decode_error(code, "C2 funct3")),
             },
             _ => return Err(decode_error(code, "instruction is not compressed")),
@@ -1317,6 +1357,16 @@ impl Inst {
                     dest: code.rd(),
                     base: code.rs1(),
                 },
+                0b011 => {
+                    if xlen.is_32() {
+                        return Err(decode_error(code, "LD is not supported on RV32"));
+                    }
+                    Inst::Ld {
+                        offset: code.imm_i(),
+                        dest: code.rd(),
+                        base: code.rs1(),
+                    }
+                }
                 0b100 => Inst::Lbu {
                     offset: code.imm_i(),
                     dest: code.rd(),
@@ -1327,7 +1377,17 @@ impl Inst {
                     dest: code.rd(),
                     base: code.rs1(),
                 },
-                _ => return Err(decode_error(code, "LOAD funct3")),
+                0b110 => {
+                    if xlen.is_32() {
+                        return Err(decode_error(code, "LWU is not supported on RV32"));
+                    }
+                    Inst::Lwu {
+                        offset: code.imm_i(),
+                        dest: code.rd(),
+                        base: code.rs1(),
+                    }
+                }
+                _ => return Err(decode_error(code, "Invalid funct3 for LOAD instruction")),
             },
             // STORE
             0b0100011 => match code.funct3() {
@@ -1346,6 +1406,16 @@ impl Inst {
                     src: code.rs2(),
                     base: code.rs1(),
                 },
+                0b011 => {
+                    if xlen.is_32() {
+                        return Err(decode_error(code, "SD is not supported on RV32"));
+                    }
+                    Inst::Sd {
+                        offset: code.imm_s(),
+                        src: code.rs2(),
+                        base: code.rs1(),
+                    }
+                }
                 _ => return Err(decode_error(code, "STORE funct3")),
             },
             // OP-IMM
