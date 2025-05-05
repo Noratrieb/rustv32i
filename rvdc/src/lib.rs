@@ -497,6 +497,15 @@ impl AmoOrdering {
             (true, true) => Self::SeqCst,
         }
     }
+    /// Undoes [`from_aq_rel`], creating two ordering bits
+    pub fn aq_rl(&self) -> (bool, bool) {
+        match self {
+            AmoOrdering::Relaxed => (false, false),
+            AmoOrdering::Acquire => (true, false),
+            AmoOrdering::Release => (false, true),
+            AmoOrdering::SeqCst => (true, true),
+        }
+    }
 }
 
 impl Debug for Inst {
@@ -781,6 +790,12 @@ impl InstCode {
         let end_span = 32 - (range.end() + 1);
         (self.0 << (end_span)) >> (end_span + range.start())
     }
+    fn insert(self, range: RangeInclusive<u32>, data: u32) -> Self {
+        let (start,end) = (*range.start(),*range.end());
+        // let start = ;
+        let span_item = (1 << (end - start + 1)) - 1;
+        Self(self.0 & !(span_item << start) | ((data & span_item) << start))
+    }
     fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
         let mut size = 0;
@@ -792,9 +807,26 @@ impl InstCode {
         }
         Imm::new_i32(sign_extend(imm, size) as i32)
     }
+    fn with_immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)], data: Imm) -> Self {
+        let mut size = 0;
+        for (from, to) in mappings {
+            let this_size = from.end() - from.start() + 1;
+            size = size.max(*to + this_size);
+        }
+        mappings.iter().fold(self, |this, (from, to)| {
+            this.insert(
+                from.clone(),
+                data.as_u32() >> *to,
+            )
+        })
+    }
 
     fn opcode(self) -> u32 {
         self.0 & 0b1111111
+    }
+    fn with_opcode(self, opcode: u32) -> Self {
+        let mask = 0b1111111;
+        Self(self.0 & !mask | (opcode & mask))
     }
     fn funct3(self) -> u32 {
         self.extract(12..=14)
@@ -802,11 +834,23 @@ impl InstCode {
     fn funct7(self) -> u32 {
         self.extract(25..=31)
     }
+    fn with_funct3(self, data: u32) -> Self {
+        self.insert(12..=14, data)
+    }
+    fn with_funct7(self, data: u32) -> Self {
+        self.insert(25..=31, data)
+    }
     fn rs1(self) -> Reg {
         Reg(self.extract(15..=19) as u8)
     }
     fn rs2(self) -> Reg {
         Reg(self.extract(20..=24) as u8)
+    }
+    fn with_rs1(self, data: Reg) -> Self {
+        self.insert(15..=19, data.0 as u32)
+    }
+    fn with_rs2(self, data: Reg) -> Self {
+        self.insert(20..=24, data.0 as u32)
     }
     fn rs2_imm(self) -> u32 {
         self.extract(20..=24)
@@ -815,8 +859,18 @@ impl InstCode {
     fn rs2_imm_plus(self) -> u32 {
         self.extract(20..=25)
     }
+    fn with_rs2_imm(self, data: u32) -> Self {
+        self.insert(20..=24, data)
+    }
+    // shifts on RV64 have one extra bit
+    fn with_rs2_imm_plus(self, data: u32) -> Self {
+        self.insert(20..=25, data)
+    }
     fn rd(self) -> Reg {
         Reg(self.extract(7..=11) as u8)
+    }
+    fn with_rd(self, data: Reg) -> Self {
+        self.insert(7..=11, data.0 as u32)
     }
     fn imm_i(self) -> Imm {
         self.immediate_s(&[(20..=31, 0)])
@@ -833,6 +887,28 @@ impl InstCode {
     }
     fn imm_j(self) -> Imm {
         self.immediate_s(&[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)])
+    }
+    fn with_imm_i(self, data: Imm) -> Self {
+        self.with_immediate_s(&[(20..=31, 0)], data)
+    }
+    fn with_imm_s(self, data: Imm) -> Self {
+        self.with_immediate_s(&[(25..=31, 5), (7..=11, 0)], data)
+    }
+    fn with_imm_b(self, data: Imm) -> Self {
+        self.with_immediate_s(
+            &[(31..=31, 12), (7..=7, 11), (25..=30, 5), (8..=11, 1)],
+            data,
+        )
+    }
+    fn with_imm_u(self, data: Imm) -> Self {
+        // Don't be fooled by the "u", LUI/AUIPC immediates are sign-extended on RV64.
+        self.with_immediate_s(&[(12..=31, 12)], data)
+    }
+    fn with_imm_j(self, data: Imm) -> Self {
+        self.with_immediate_s(
+            &[(31..=31, 20), (21..=30, 1), (20..=20, 11), (12..=19, 12)],
+            data,
+        )
     }
 }
 
@@ -1697,6 +1773,308 @@ impl Inst {
         };
         Ok(inst)
     }
+    /// Encode a normal (not compressed) instruction
+    pub fn encode_normal(&self, xlen: Xlen) -> u32 {
+        let code = InstCode(0);
+        macro_rules! BRANCH {
+            ($offset:ident, $src1:ident, $src2:ident => $a:expr) => {
+                $a.with_opcode(0b1100011)
+                    .with_imm_b(*$offset)
+                    .with_rs1(*$src1)
+                    .with_rs2(*$src2)
+            };
+        }
+        macro_rules! LOAD {
+            ($offset:ident, $src1:ident, $dest:ident => $a:expr) => {
+                $a.with_opcode(0b0000011)
+                    .with_imm_i(*$offset)
+                    .with_rs1(*$src1)
+                    .with_rd(*$dest)
+            };
+        }
+        macro_rules! STORE {
+            ($offset:ident, $src1:ident, $src2:ident => $a:expr) => {
+                $a.with_opcode(0b0100011)
+                    .with_imm_s(*$offset)
+                    .with_rs1(*$src1)
+                    .with_rs2(*$src2)
+            };
+        }
+        macro_rules! OP_IMM {
+            ($offset:ident, $src1:ident, $dest:ident => $a:expr) => {
+                $a.with_opcode(0b0010011)
+                    .with_imm_i(*$offset)
+                    .with_rs1(*$src1)
+                    .with_rd(*$dest)
+            };
+        }
+        macro_rules! OP_IMM_32 {
+            ($offset:ident, $src1:ident, $dest:ident => $a:expr) => {
+                $a.with_opcode(0b0011011)
+                    .with_imm_i(*$offset)
+                    .with_rs1(*$src1)
+                    .with_rd(*$dest)
+            };
+        }
+        macro_rules! OP {
+            ($src1:ident, $src2:ident, $dest:ident => $a:expr) => {
+                $a.with_opcode(0b0110011)
+                    .with_rs2(*$src2)
+                    .with_rs1(*$src1)
+                    .with_rd(*$dest)
+            };
+        }
+        macro_rules! OP_32 {
+            ($src1:ident, $src2:ident, $dest:ident => $a:expr) => {
+                $a.with_opcode(0b0111011)
+                    .with_rs2(*$src2)
+                    .with_rs1(*$src1)
+                    .with_rd(*$dest)
+            };
+        }
+        let code: InstCode = match self {
+            Inst::Lui { uimm, dest } => {
+                code.with_opcode(0b0110111).with_rd(*dest).with_imm_u(*uimm)
+            }
+            Inst::Auipc { uimm, dest } => {
+                code.with_opcode(0b0010111).with_rd(*dest).with_imm_u(*uimm)
+            }
+            Inst::Jal { offset, dest } => code
+                .with_opcode(0b1101111)
+                .with_imm_j(*offset)
+                .with_rd(*dest),
+            Inst::Jalr { offset, base, dest } => code
+                .with_opcode(0b1100111)
+                .with_funct3(0b000)
+                .with_imm_i(*offset)
+                .with_rs1(*base)
+                .with_rd(*dest),
+            Inst::Beq { offset, src1, src2 } => {
+                BRANCH!(offset,src1,src2 => code).with_funct3(0b000)
+            }
+            Inst::Bne { offset, src1, src2 } => {
+                BRANCH!(offset,src1,src2 => code).with_funct3(0b001)
+            }
+            Inst::Blt { offset, src1, src2 } => {
+                BRANCH!(offset,src1,src2 => code).with_funct3(0b100)
+            }
+            Inst::Bge { offset, src1, src2 } => {
+                BRANCH!(offset,src1,src2 => code).with_funct3(0b101)
+            }
+            Inst::Bltu { offset, src1, src2 } => {
+                BRANCH!(offset,src1,src2 => code).with_funct3(0b110)
+            }
+            Inst::Bgeu { offset, src1, src2 } => {
+                BRANCH!(offset,src1,src2 => code).with_funct3(0b111)
+            }
+            Inst::Lb { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b000),
+            Inst::Lbu { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b100),
+            Inst::Lh { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b001),
+            Inst::Lhu { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b101),
+            Inst::Lw { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b010),
+            Inst::Lwu { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b110),
+            Inst::Ld { offset, dest, base } => LOAD!(offset,base,dest => code).with_funct3(0b011),
+            Inst::Sb { offset, src, base } => STORE!(offset,base,src => code).with_funct3(0b000),
+            Inst::Sh { offset, src, base } => STORE!(offset,base,src => code).with_funct3(0b001),
+            Inst::Sw { offset, src, base } => STORE!(offset,base,src => code).with_funct3(0b010),
+            Inst::Sd { offset, src, base } => STORE!(offset,base,src => code).with_funct3(0b011),
+            Inst::Addi { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b000),
+            Inst::AddiW { imm, dest, src1 } => OP_IMM_32!(imm,src1,dest => code).with_funct3(0b000),
+            Inst::Slti { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b010),
+            Inst::Sltiu { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b011),
+            Inst::Xori { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b100),
+            Inst::Ori { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b110),
+            Inst::Andi { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b111),
+            Inst::Slli { imm, dest, src1 } => OP_IMM!(imm,src1,dest => code).with_funct3(0b001),
+            Inst::SlliW { imm, dest, src1 } => OP_IMM_32!(imm,src1,dest => code).with_funct3(0b001),
+            Inst::Srli { imm, dest, src1 } => {
+                match OP_IMM!(imm,src1,dest => code).with_funct3(0b101) {
+                    x => match xlen {
+                        Xlen::Rv32 => x.with_funct7(0b0000000).with_rs2_imm(imm.as_u32()),
+                        Xlen::Rv64 => x.with_funct7(0b0000000).with_rs2_imm_plus(imm.as_u32()),
+                    },
+                }
+            }
+            Inst::SrliW { imm, dest, src1 } => OP_IMM_32!(imm,src1,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0000000)
+                .with_rs2_imm(imm.as_u32()),
+            Inst::Srai { imm, dest, src1 } => {
+                match OP_IMM!(imm,src1,dest => code).with_funct3(0b101) {
+                    x => match xlen {
+                        Xlen::Rv32 => x.with_funct7(0b0100000).with_rs2_imm(imm.as_u32()),
+                        Xlen::Rv64 => x.with_funct7(0b0100000).with_rs2_imm_plus(imm.as_u32()),
+                    },
+                }
+            }
+            Inst::SraiW { imm, dest, src1 } => OP_IMM_32!(imm,src1,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0100000)
+                .with_rs2_imm(imm.as_u32()),
+            Inst::Add { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b000)
+                .with_funct7(0b0000000),
+            Inst::AddW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b000)
+                .with_funct7(0b0000000),
+            Inst::Sub { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b000)
+                .with_funct7(0b0100000),
+            Inst::SubW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b000)
+                .with_funct7(0b0100000),
+            Inst::Sll { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b001)
+                .with_funct7(0b0000000),
+            Inst::SllW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b001)
+                .with_funct7(0b0000000),
+            Inst::Slt { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b010)
+                .with_funct7(0b0000000),
+            Inst::Sltu { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b011)
+                .with_funct7(0b0000000),
+            Inst::Xor { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b100)
+                .with_funct7(0b0000000),
+            Inst::Srl { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0000000),
+            Inst::SrlW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0000000),
+            Inst::Sra { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0100000),
+            Inst::SraW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0100000),
+            Inst::Or { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b110)
+                .with_funct7(0b0000000),
+            Inst::And { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b111)
+                .with_funct7(0b0000000),
+            Inst::Fence { fence } => match code
+                .with_opcode(0b0001111)
+                .insert(28..=31, fence.fm as u32)
+                .with_rd(fence.dest)
+                .with_rs1(fence.src)
+            {
+                mut v => {
+                    let mut i = |x, b| v = v.insert(x..=x, if b { 1 } else { 0 });
+                    i(27, fence.pred.device_input);
+                    i(26, fence.pred.device_output);
+                    i(25, fence.pred.memory_read);
+                    i(24, fence.pred.memory_write);
+                    i(23, fence.succ.device_input);
+                    i(22, fence.succ.device_output);
+                    i(21, fence.succ.memory_read);
+                    i(20, fence.succ.memory_write);
+                    v
+                }
+            },
+            Inst::Ecall => code
+                .with_opcode(0b1110011)
+                .with_imm_i(Imm::new_u32(0b000000000000)),
+            Inst::Ebreak => code
+                .with_opcode(0b1110011)
+                .with_imm_i(Imm::new_u32(0b000000000001)),
+            Inst::Mul { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b000)
+                .with_funct7(0b0000001),
+            Inst::MulW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b000)
+                .with_funct7(0b0000001),
+            Inst::Mulh { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b001)
+                .with_funct7(0b0000001),
+            Inst::Mulhsu { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b010)
+                .with_funct7(0b0000001),
+            Inst::Mulhu { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b011)
+                .with_funct7(0b0000001),
+            Inst::Div { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b100)
+                .with_funct7(0b0000001),
+            Inst::DivW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b100)
+                .with_funct7(0b0000001),
+            Inst::Divu { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0000001),
+            Inst::DivuW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b101)
+                .with_funct7(0b0000001),
+            Inst::Rem { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b110)
+                .with_funct7(0b0000001),
+            Inst::RemW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b110)
+                .with_funct7(0b0000001),
+            Inst::Remu { dest, src1, src2 } => OP!(src1,src2,dest => code)
+                .with_funct3(0b111)
+                .with_funct7(0b0000001),
+            Inst::RemuW { dest, src1, src2 } => OP_32!(src1,src2,dest => code)
+                .with_funct3(0b111)
+                .with_funct7(0b0000001),
+            Inst::LrW { order, dest, addr } => match code
+                .with_opcode(0b00101111)
+                .with_funct3(0b010)
+                .insert(26..=26, if order.aq_rl().0 { 1 } else { 0 })
+                .insert(25..=25, if order.aq_rl().1 { 1 } else { 0 })
+            {
+                code => code.insert(27..=31, 0b00010).with_rd(*dest).with_rs1(*addr),
+            },
+            Inst::ScW {
+                order,
+                dest,
+                addr,
+                src,
+            } => match code
+                .with_opcode(0b00101111)
+                .with_funct3(0b010)
+                .insert(26..=26, if order.aq_rl().0 { 1 } else { 0 })
+                .insert(25..=25, if order.aq_rl().1 { 1 } else { 0 })
+            {
+                code => code
+                    .insert(27..=31, 0b00011)
+                    .with_rd(*dest)
+                    .with_rs1(*addr)
+                    .with_rs2(*src),
+            },
+            Inst::AmoW {
+                order,
+                op,
+                dest,
+                addr,
+                src,
+            } => match code
+                .with_opcode(0b00101111)
+                .with_funct3(0b010)
+                .insert(26..=26, if order.aq_rl().0 { 1 } else { 0 })
+                .insert(25..=25, if order.aq_rl().1 { 1 } else { 0 })
+            {
+                code => code.with_rd(*dest).with_rs1(*addr).with_rs2(*src).insert(
+                    27..=31,
+                    match op {
+                        AmoOp::Swap => 0b00001,
+                        AmoOp::Add => 0b00000,
+                        AmoOp::Xor => 0b00100,
+                        AmoOp::And => 0b01100,
+                        AmoOp::Or => 0b01000,
+                        AmoOp::Min => 0b10000,
+                        AmoOp::Max => 0b10100,
+                        AmoOp::Minu => 0b11000,
+                        AmoOp::Maxu => 0b11100,
+                    },
+                ),
+            },
+        };
+        code.0
+    }
 }
 
 #[cfg(test)]
@@ -1704,6 +2082,7 @@ mod tests {
     extern crate std;
     use core::sync::atomic::AtomicU32;
     use core::sync::atomic::Ordering;
+    use core::u32;
     use std::prelude::rust_2024::*;
 
     use std::fmt::Write as _;
@@ -1741,9 +2120,32 @@ mod tests {
                 std::print!("\r{}{}", "#".repeat(done), "-".repeat(100 - done));
                 std::io::stdout().flush().unwrap();
             }
-            let _ = Inst::decode(i, xlen);
+            let i2 = Inst::decode(i, xlen);
+            if let Ok((i2, crate::IsCompressed::No)) = i2 {
+                if is_inst_supposed_to_roundtrip(&i2) {
+                    assert_eq!(
+                        i2,
+                        Inst::decode(i2.encode_normal(xlen), xlen)
+                            .expect("to succeed")
+                            .0,
+                        "encoded inst different: {i2} from {i} encodes differently"
+                    );
+                }
+            }
         }
-        let _ = Inst::decode(u32::MAX, xlen);
+        let i2 = Inst::decode(u32::MAX, xlen);
+        let i = u32::MAX;
+        if let Ok((i2, crate::IsCompressed::No)) = i2 {
+            if is_inst_supposed_to_roundtrip(&i2) {
+                assert_eq!(
+                    i2,
+                    Inst::decode(i2.encode_normal(xlen), xlen)
+                        .expect("to succeed")
+                        .0,
+                    "encoded inst different: {i2} from {i} encodes differently"
+                );
+            }
+        }
     }
 
     #[test]
