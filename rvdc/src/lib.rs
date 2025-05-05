@@ -791,9 +791,10 @@ impl InstCode {
         (self.0 << (end_span)) >> (end_span + range.start())
     }
     fn insert(self, range: RangeInclusive<u32>, data: u32) -> Self {
+        let (start,end) = (*range.start(),*range.end());
         // let start = ;
-        let span_item = (1 << (range.end() - range.start())) - 1;
-        Self(self.0 & !(span_item << range.start()) | ((data & span_item) << range.start()))
+        let span_item = (1 << (end - start + 1)) - 1;
+        Self(self.0 & !(span_item << start) | ((data & span_item) << start))
     }
     fn immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)]) -> Imm {
         let mut imm = 0;
@@ -807,8 +808,16 @@ impl InstCode {
         Imm::new_i32(sign_extend(imm, size) as i32)
     }
     fn with_immediate_s(self, mappings: &[(RangeInclusive<u32>, u32)], data: Imm) -> Self {
+        let mut size = 0;
+        for (from, to) in mappings {
+            let this_size = from.end() - from.start() + 1;
+            size = size.max(*to + this_size);
+        }
         mappings.iter().fold(self, |this, (from, to)| {
-            this.insert(from.clone(), data.as_u32() >> to)
+            this.insert(
+                from.clone(),
+                data.as_u32() >> *to,
+            )
         })
     }
 
@@ -2114,7 +2123,13 @@ mod tests {
             let i2 = Inst::decode(i, xlen);
             if let Ok((i2, crate::IsCompressed::No)) = i2 {
                 if is_inst_supposed_to_roundtrip(&i2) {
-                    assert_eq!(i2.encode_normal(xlen), i);
+                    assert_eq!(
+                        i2,
+                        Inst::decode(i2.encode_normal(xlen), xlen)
+                            .expect("to succeed")
+                            .0,
+                        "encoded inst different: {i2} from {i} encodes differently"
+                    );
                 }
             }
         }
@@ -2122,7 +2137,13 @@ mod tests {
         let i = u32::MAX;
         if let Ok((i2, crate::IsCompressed::No)) = i2 {
             if is_inst_supposed_to_roundtrip(&i2) {
-                assert_eq!(i2.encode_normal(xlen), i);
+                assert_eq!(
+                    i2,
+                    Inst::decode(i2.encode_normal(xlen), xlen)
+                        .expect("to succeed")
+                        .0,
+                    "encoded inst different: {i2} from {i} encodes differently"
+                );
             }
         }
     }
