@@ -569,11 +569,11 @@ impl<XLEN: XLen> Emulator<XLEN> {
                     |src| ((src as u32).signed_shr(imm.as_u32())) as u64,
                 );
             }
-            Inst::MulW { dest, src1, src2 } => todo!(),
-            Inst::DivW { dest, src1, src2 } => todo!(),
-            Inst::DivuW { dest, src1, src2 } => todo!(),
-            Inst::RemW { dest, src1, src2 } => todo!(),
-            Inst::RemuW { dest, src1, src2 } => todo!(),
+            Inst::MulW { .. } => todo!(),
+            Inst::DivW { .. } => todo!(),
+            Inst::DivuW { .. } => todo!(),
+            Inst::RemW { .. } => todo!(),
+            Inst::RemuW { .. } => todo!(),
             _ => todo!(),
         }
 

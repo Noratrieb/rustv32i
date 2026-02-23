@@ -1702,9 +1702,12 @@ impl Inst {
 #[cfg(test)]
 mod tests {
     extern crate std;
+    use std::borrow::ToOwned;
+    use std::string::String;
+    use std::vec::Vec;
+
     use core::sync::atomic::AtomicU32;
     use core::sync::atomic::Ordering;
-    use std::prelude::rust_2024::*;
 
     use std::fmt::Write as _;
     use std::io::Write as _;
