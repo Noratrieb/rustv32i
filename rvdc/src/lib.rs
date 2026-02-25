@@ -27,7 +27,7 @@ impl Xlen {
 }
 
 /// A decoded RISC-V integer register.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Reg(pub u8);
 
 impl Reg {
@@ -129,7 +129,7 @@ impl Display for Reg {
 /// like `lui` the value will have been shifted.
 ///
 /// This type is XLEN-agnostic, use the XLEN-specific accessors to get the correct value.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Imm(u64);
 
 impl Imm {
@@ -199,7 +199,7 @@ impl From<Imm> for i32 {
 /// sign-extended already, so the value can be used as-is.
 /// For instructions that have immediates in the upper bits (`lui`, `auipc`),
 /// the shift will have been done already, so the value can also be used as-is.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq,PartialOrd, Ord, Hash)]
 #[rustfmt::skip]
 #[expect(missing_docs)] // enum variant fields
 #[non_exhaustive]
@@ -370,7 +370,7 @@ pub enum Inst {
 }
 
 /// The details of a RISC-V `fence` instruction.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fence {
     /// The `fm` field of the instruction.
     /// - `0b0000` is a normal fence
@@ -387,7 +387,7 @@ pub struct Fence {
 }
 
 /// The affected parts of a fence.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[expect(missing_docs)]
 pub struct FenceSet {
     pub device_input: bool,
@@ -397,7 +397,7 @@ pub struct FenceSet {
 }
 
 /// An atomic memory ordering for instructions from the A extension.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AmoOrdering {
     /// No bits.
     Relaxed,
@@ -410,7 +410,7 @@ pub enum AmoOrdering {
 }
 
 /// An atomic memory operations from the Zaamo extension.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AmoOp {
     /// Swap
     Swap,
@@ -904,7 +904,7 @@ impl From<InstCodeC> for InstCode {
 /// Whether the decoded instruction was a compressed instruction or not.
 /// If it was compressed, only the first two bytes were used.
 /// If it was not compressed, all four bytes are consumed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord,Hash)]
 pub enum IsCompressed {
     /// Normal 4-byte instruction
     No,
